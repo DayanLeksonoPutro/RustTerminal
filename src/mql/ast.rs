@@ -40,6 +40,10 @@ pub enum Ty {
     Struct(Sym),
     /// built-in class (CTrade, CPositionInfo...)
     Object(Sym),
+    /// pointer to a user class or struct (`CFoo *p`)
+    Ptr(Sym),
+    /// template parameter: any value, never converted
+    Any,
 }
 
 impl Ty {
@@ -98,6 +102,12 @@ pub enum Expr {
     Cast(Ty, Box<Expr>),
     /// `{a, b, c}` initializer list
     List(Vec<Expr>),
+    /// `new CFoo(args)`, also used for `CFoo obj(args);`
+    New(Sym, Vec<Expr>),
+    /// `delete p`
+    Delete(Box<Expr>),
+    /// `CBase::Method(args)`: a call that skips virtual dispatch
+    ScopedCall(Sym, Sym, Vec<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -158,6 +168,10 @@ pub struct Func {
     pub params: Vec<Param>,
     pub body: Vec<Stmt>,
     pub line: u32,
+    /// owning class for methods
+    pub class: Option<Sym>,
+    /// constructor initializer list: `: CBase(a), m_x(b)`
+    pub init_list: Vec<(Sym, Vec<Expr>)>,
 }
 
 #[derive(Clone, Debug)]
@@ -220,7 +234,18 @@ impl ProgramKind {
 #[derive(Clone, Debug)]
 pub struct StructDef {
     pub name: Sym,
+    /// all fields, inherited ones first
     pub fields: Vec<(Sym, Ty, Vec<Option<Expr>>)>,
+}
+
+/// Methods and base class of a user class or struct.
+#[derive(Clone, Debug, Default)]
+pub struct ClassInfo {
+    pub base: Option<Sym>,
+    pub methods: HashMap<Sym, Vec<Rc<Func>>>,
+    pub is_class: bool,
+    /// fields declared in this class (not inherited), in order
+    pub own_fields: Vec<Sym>,
 }
 
 #[derive(Clone, Debug)]
@@ -235,6 +260,31 @@ pub struct Program {
     /// enum name -> (member name, value)
     pub enums: HashMap<String, Vec<(String, i64)>>,
     pub structs: HashMap<Sym, Rc<StructDef>>,
+    pub classes: HashMap<Sym, ClassInfo>,
     pub interner: Interner,
     pub warnings: Vec<String>,
+}
+
+impl Program {
+    /// Find a method by walking from `class` up its base classes.
+    pub fn find_method(&self, class: Sym, name: Sym) -> Option<&Vec<Rc<Func>>> {
+        let mut c = Some(class);
+        let mut guard = 0;
+        while let Some(cls) = c {
+            let info = self.classes.get(&cls)?;
+            if let Some(m) = info.methods.get(&name) {
+                return Some(m);
+            }
+            c = info.base;
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+        }
+        None
+    }
+
+    pub fn is_user_class(&self, s: Sym) -> bool {
+        self.classes.contains_key(&s)
+    }
 }

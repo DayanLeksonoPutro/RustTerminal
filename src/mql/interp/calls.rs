@@ -571,7 +571,11 @@ impl Instance {
                 }
                 Value::Void
             }
-            "CheckPointer" => vi(2),
+            "CheckPointer" => match a.first() {
+                Some(Value::Struct(_)) | Some(Value::Obj(_)) => vi(1),
+                _ => vi(0),
+            },
+            "GetPointer" => a.first().cloned().unwrap_or(vi(0)),
             // ---------- time ----------
             "TimeCurrent" | "TimeTradeServer" => vi(host.now()),
             "TimeLocal" | "TimeGMT" => vi(if host.is_tester() { host.now() } else { crate::market::unix_now() }),

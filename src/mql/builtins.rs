@@ -26,6 +26,10 @@ impl Const {
     }
 }
 
+/// Standard-library headers whose classes are implemented natively by the engine; an
+/// `#include` of these is satisfied without reading a file.
+pub const NATIVE_HEADERS: [&str; 5] = ["trade/trade.mqh", "trade/positioninfo.mqh", "trade/symbolinfo.mqh", "trade/accountinfo.mqh", "trade/orderinfo.mqh"];
+
 pub const BUILTIN_CLASSES: [&str; 5] = ["CTrade", "CPositionInfo", "CSymbolInfo", "CAccountInfo", "COrderInfo"];
 
 pub fn builtin_structs() -> Vec<(&'static str, Vec<(&'static str, Ty)>)> {
@@ -128,7 +132,7 @@ pub const BUILTIN_FUNCS: &[&str] = &[
     "ChartSetInteger", "ChartGetDouble", "EventSetTimer", "EventSetMillisecondTimer", "EventKillTimer", "GetLastError",
     "ResetLastError", "IsStopped", "ExpertRemove", "Sleep", "TerminalInfoInteger", "TerminalInfoString", "MQLInfoInteger",
     "MQLInfoString", "PlaySound", "SendNotification", "SendMail", "GlobalVariableSet", "GlobalVariableGet",
-    "GlobalVariableCheck", "GlobalVariableDel", "ZeroMemory", "CheckPointer", "IsTradeAllowed", "TerminalClose", "MathSign",
+    "GlobalVariableCheck", "GlobalVariableDel", "ZeroMemory", "CheckPointer", "GetPointer", "IsTradeAllowed", "TerminalClose", "MathSign",
 ];
 
 pub fn is_builtin_func(name: &str) -> bool {

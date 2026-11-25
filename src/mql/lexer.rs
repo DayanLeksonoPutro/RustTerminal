@@ -28,10 +28,10 @@ pub struct CompileError {
     pub msg: String,
 }
 
-const PUNCTS: [&str; 46] = [
-    "<<=", ">>=", "::", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "==", "!=", "<=", ">=", "&&", "||", "<<",
+const PUNCTS: [&str; 48] = [
+    "##", "<<=", ">>=", "::", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "==", "!=", "<=", ">=", "&&", "||", "<<",
     ">>", "->", "+", "-", "*", "/", "%", "=", "<", ">", "!", "~", "&", "|", "^", "?", ":", ";", ",", ".", "(", ")", "[", "]",
-    "{", "}",
+    "{", "}", "#",
 ];
 
 pub struct Lexed {
@@ -41,20 +41,29 @@ pub struct Lexed {
 }
 
 pub fn lex(src: &str) -> Result<Lexed, CompileError> {
+    lex_impl(src, true)
+}
+
+/// Lex a fragment (macro body): '#' is an operator here, not a directive.
+pub fn lex_fragment(src: &str) -> Result<Lexed, CompileError> {
+    lex_impl(src, false)
+}
+
+fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
     let chars: Vec<char> = src.chars().collect();
     let mut i = 0usize;
     let mut line = 1u32;
     let mut col = 1u32;
     let mut out = Vec::new();
     let mut comments = HashMap::new();
-    let mut line_start = true;
+    let mut line_start = directives;
 
     macro_rules! adv {
         () => {{
             if chars[i] == '\n' {
                 line += 1;
                 col = 1;
-                line_start = true;
+                line_start = directives;
             } else {
                 col += 1;
             }

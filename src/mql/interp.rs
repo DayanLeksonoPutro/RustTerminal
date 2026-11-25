@@ -71,6 +71,7 @@ pub struct Var {
 impl Value {
     pub fn as_f64(&self) -> f64 {
         match self {
+            Value::Struct(s) => Rc::as_ptr(s) as usize as f64,
             Value::Int(i) => *i as f64,
             Value::Double(d) => *d,
             Value::Bool(b) => *b as i64 as f64,
@@ -89,6 +90,8 @@ impl Value {
                 }
             }
             Value::Bool(b) => *b as i64,
+            Value::Struct(s) => Rc::as_ptr(s) as usize as i64,
+            Value::Obj(o) => Rc::as_ptr(o) as usize as i64,
             Value::Str(s) => s.trim().parse::<i64>().or_else(|_| s.trim().parse::<f64>().map(|f| f as i64)).unwrap_or(0),
             _ => 0,
         }
@@ -225,6 +228,8 @@ pub struct Instance {
     globals: HashMap<Sym, VarRef>,
     statics: HashMap<u32, VarRef>,
     frames: Vec<Vec<Vec<(Sym, VarRef)>>>,
+    /// object of the running method (None inside plain functions)
+    this_stack: Vec<Option<StructRef>>,
     pub buffers: Vec<Option<(ArrRef, i64)>>,
     pub plots: Vec<PlotRt>,
     pub short_name: String,
@@ -279,6 +284,7 @@ impl Instance {
             globals: HashMap::new(),
             statics: HashMap::new(),
             frames: vec![],
+            this_stack: vec![],
             buffers: vec![None; prog.props.buffers.max(0)],
             plots,
             short_name: name,
@@ -356,6 +362,8 @@ impl Instance {
                 };
                 Value::Obj(Rc::new(RefCell::new(o)))
             }
+            Ty::Ptr(_) => Value::Int(0),
+            Ty::Any => Value::Void,
         }
     }
 
@@ -392,6 +400,9 @@ impl Instance {
             (Ty::Struct(_), Value::Struct(s)) => Value::Struct(Rc::new(RefCell::new(deep_copy_struct(&s.borrow())))),
             (Ty::Struct(s), _) => self.new_struct(*s),
             (Ty::Object(_), v @ Value::Obj(_)) => v,
+            (Ty::Ptr(_), v @ (Value::Struct(_) | Value::Void)) => v,
+            (Ty::Ptr(_), v) => Value::Int(v.as_i64()),
+            (Ty::Any, v) => v,
             (Ty::Void, _) => Value::Void,
             (_, v) => v,
         }
@@ -409,7 +420,178 @@ impl Instance {
                 }
             }
         }
+        if self.this_has_field(s) {
+            return None; // a member of the current object hides globals
+        }
         self.globals.get(&s).cloned()
+    }
+
+    fn cur_this(&self) -> Option<StructRef> {
+        self.this_stack.last().cloned().flatten()
+    }
+
+    fn this_has_field(&self, s: Sym) -> bool {
+        match self.this_stack.last() {
+            Some(Some(t)) => t.borrow().fields.iter().any(|f| f.0 == s),
+            _ => false,
+        }
+    }
+
+    fn this_field(&self, s: Sym) -> Option<Value> {
+        let t = self.cur_this()?;
+        let tb = t.borrow();
+        tb.fields.iter().find(|f| f.0 == s).map(|f| f.2.clone())
+    }
+
+    fn set_this_field(&self, s: Sym, v: Value) -> bool {
+        let t = match self.cur_this() {
+            Some(t) => t,
+            None => return false,
+        };
+        let ty = t.borrow().fields.iter().find(|f| f.0 == s).map(|f| f.1.clone());
+        match ty {
+            Some(ty) => {
+                let nv = if matches!(v, Value::Arr(_)) { v } else { self.coerce(v, &ty) };
+                if let Some(f) = t.borrow_mut().fields.iter_mut().find(|f| f.0 == s) {
+                    f.2 = nv;
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    // ---------- objects ----------
+
+    /// Create an object of a user class (or built-in class) and run its constructors.
+    pub fn construct(&mut self, cls: Sym, args: &[Expr], host: &mut dyn Host) -> R<Value> {
+        if !self.prog.structs.contains_key(&cls) {
+            if builtins::BUILTIN_CLASSES.contains(&self.sym(cls)) {
+                return Ok(self.default_value(&Ty::Object(cls)));
+            }
+            return Err(self.err(format!("'{}' - unknown class", self.sym(cls))));
+        }
+        let argv = args.iter().map(|a| self.eval(a, host)).collect::<R<Vec<_>>>()?;
+        let obj = match self.new_struct(cls) {
+            Value::Struct(s) => s,
+            _ => return Err(self.err("cannot create object")),
+        };
+        self.run_ctor(cls, &obj, argv, host)?;
+        Ok(Value::Struct(obj))
+    }
+
+    fn run_ctor(&mut self, cls: Sym, obj: &StructRef, args: Vec<Value>, host: &mut dyn Host) -> R<()> {
+        let prog = self.prog.clone();
+        let info = match prog.classes.get(&cls) {
+            Some(i) => i,
+            None => return Ok(()),
+        };
+        let ctor = info.methods.get(&cls).and_then(|fs| {
+            fs.iter()
+                .find(|f| {
+                    let req = f.params.iter().filter(|p| p.default.is_none()).count();
+                    args.len() >= req && args.len() <= f.params.len()
+                })
+                .cloned()
+        });
+        if self.depth > 200 {
+            return Err(self.err("stack overflow"));
+        }
+        let mut scope = vec![];
+        if let Some(f) = &ctor {
+            for (i, p) in f.params.iter().enumerate() {
+                let v = match args.get(i) {
+                    Some(v) => v.clone(),
+                    None => match &p.default {
+                        Some(e) => self.eval(e, host)?,
+                        None => self.default_value(&p.ty),
+                    },
+                };
+                let v = if p.is_array || p.by_ref { v } else { self.coerce(v, &p.ty) };
+                scope.push((p.name, Rc::new(RefCell::new(Var { ty: p.ty.clone(), v }))));
+            }
+        }
+        self.depth += 1;
+        self.frames.push(vec![scope]);
+        self.this_stack.push(Some(obj.clone()));
+        let r = self.ctor_inner(info, ctor.as_ref(), obj, host);
+        self.this_stack.pop();
+        self.frames.pop();
+        self.depth -= 1;
+        r
+    }
+
+    fn ctor_inner(&mut self, info: &ClassInfo, ctor: Option<&Rc<Func>>, obj: &StructRef, host: &mut dyn Host) -> R<()> {
+        let empty = vec![];
+        let init_list = ctor.map(|f| &f.init_list).unwrap_or(&empty);
+        if let Some(b) = info.base {
+            let bargs = match init_list.iter().find(|(n, _)| *n == b) {
+                Some((_, a)) => a.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?,
+                None => vec![],
+            };
+            self.run_ctor(b, obj, bargs, host)?;
+        }
+        for fsym in &info.own_fields {
+            let (fty, fval) = match obj.borrow().fields.iter().find(|f| f.0 == *fsym) {
+                Some(f) => (f.1.clone(), f.2.clone()),
+                None => continue,
+            };
+            let init = init_list.iter().find(|(n, _)| n == fsym);
+            match (init, &fty, &fval) {
+                (Some((_, a)), Ty::Struct(c), Value::Struct(sub)) if self.prog.classes.contains_key(c) => {
+                    let vals = a.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?;
+                    if vals.len() == 1 && matches!(vals[0], Value::Struct(_)) && self.prog.classes.get(c).is_some_and(|ci| !ci.methods.contains_key(c)) {
+                        self.set_this_field(*fsym, vals[0].clone());
+                    } else {
+                        let sub = sub.clone();
+                        self.run_ctor(*c, &sub, vals, host)?;
+                    }
+                }
+                (Some((_, a)), _, _) => {
+                    let v = match a.first() {
+                        Some(e) => self.eval(e, host)?,
+                        None => self.default_value(&fty),
+                    };
+                    self.set_this_field(*fsym, v);
+                }
+                (None, Ty::Struct(c), Value::Struct(sub)) if self.prog.classes.contains_key(c) => {
+                    let sub = sub.clone();
+                    self.run_ctor(*c, &sub, vec![], host)?;
+                }
+                _ => {}
+            }
+        }
+        if let Some(f) = ctor {
+            for s in f.body.iter() {
+                if let Flow::Return(_) = self.exec(s, host)? {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `delete p`: run destructors from the most derived class up.
+    fn destroy(&mut self, obj: &StructRef, host: &mut dyn Host) -> R<()> {
+        let prog = self.prog.clone();
+        let mut c = Some(obj.borrow().ty);
+        let mut guard = 0;
+        while let Some(cls) = c {
+            let info = match prog.classes.get(&cls) {
+                Some(i) => i,
+                None => break,
+            };
+            let dname = format!("~{}", prog.interner.name(cls));
+            if let Some(f) = prog.interner.get(&dname).and_then(|d| info.methods.get(&d)).and_then(|v| v.first()) {
+                self.call_values_this(f, vec![], Some(obj.clone()), host)?;
+            }
+            c = info.base;
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn declare(&mut self, s: Sym, var: VarRef) {
@@ -454,11 +636,15 @@ impl Instance {
                     }
                     v
                 }
+                Some(e @ Expr::New(..)) if matches!(d.ty, Ty::Struct(_)) => self.eval(e, host)?,
                 Some(e) => {
                     let v = self.eval(e, host)?;
                     self.coerce(v, &d.ty)
                 }
-                None => self.default_value(&d.ty),
+                None => match &d.ty {
+                    Ty::Struct(c) if self.prog.classes.contains_key(c) => self.construct(*c, &[], host)?,
+                    _ => self.default_value(&d.ty),
+                },
             }
         };
         Ok(Rc::new(RefCell::new(Var { ty: d.ty.clone(), v })))
@@ -688,6 +874,10 @@ impl Instance {
     // ---------- calls ----------
 
     pub fn call_values(&mut self, f: &Rc<Func>, args: Vec<Value>, host: &mut dyn Host) -> R<Value> {
+        self.call_values_this(f, args, None, host)
+    }
+
+    pub fn call_values_this(&mut self, f: &Rc<Func>, args: Vec<Value>, this: Option<StructRef>, host: &mut dyn Host) -> R<Value> {
         let mut scope = vec![];
         for (i, p) in f.params.iter().enumerate() {
             let v = match args.get(i) {
@@ -700,7 +890,10 @@ impl Instance {
             let v = if p.is_array { v } else { self.coerce(v, &p.ty) };
             scope.push((p.name, Rc::new(RefCell::new(Var { ty: p.ty.clone(), v }))));
         }
-        self.run_body(f, scope, host)
+        self.this_stack.push(this);
+        let r = self.run_body(f, scope, host);
+        self.this_stack.pop();
+        r
     }
 
     fn run_body(&mut self, f: &Rc<Func>, scope: Vec<(Sym, VarRef)>, host: &mut dyn Host) -> R<Value> {
@@ -730,7 +923,7 @@ impl Instance {
         Ok(if f.ret == Ty::Void { Value::Void } else { self.coerce(result, &f.ret) })
     }
 
-    fn call_user(&mut self, fs: &[Rc<Func>], args: &[Expr], host: &mut dyn Host) -> R<Value> {
+    fn call_user(&mut self, fs: &[Rc<Func>], args: &[Expr], this: Option<StructRef>, host: &mut dyn Host) -> R<Value> {
         let f = fs
             .iter()
             .find(|f| {
@@ -750,7 +943,7 @@ impl Instance {
                             other => {
                                 let v = self.eval(other, host)?;
                                 let var = Rc::new(RefCell::new(Var { ty: p.ty.clone(), v }));
-                                if p.by_ref && matches!(other, Expr::Index(..) | Expr::Member(..)) {
+                                if p.by_ref && matches!(other, Expr::Index(..) | Expr::Member(..) | Expr::Var(_)) {
                                     writebacks.push((other.clone(), var.clone()));
                                 }
                                 var
@@ -772,7 +965,10 @@ impl Instance {
             scope.push((p.name, var));
         }
         let saved = (self.cur_line, self.cur_col);
-        let r = self.run_body(&f, scope, host)?;
+        self.this_stack.push(this);
+        let r = self.run_body(&f, scope, host);
+        self.this_stack.pop();
+        let r = r?;
         self.cur_line = saved.0;
         self.cur_col = saved.1;
         for (e, var) in writebacks {
@@ -1011,12 +1207,17 @@ impl Instance {
                         Ok(a.data[p as usize].clone())
                     }
                     Value::Str(s) => Ok(Value::Int(s.chars().nth(idx.max(0) as usize).map(|c| c as i64).unwrap_or(0))),
+                    Value::Struct(st) => match self.operator_method(&st, "operator[]") {
+                        Some(f) => self.call_values_this(&f, vec![Value::Int(idx)], Some(st), host),
+                        None => Err(self.err("'[' - array required")),
+                    },
                     _ => Err(self.err("'[' - array required")),
                 }
             }
             Expr::Member(o, f) => {
                 let ov = self.eval(o, host)?;
                 match ov {
+                    Value::Int(0) | Value::Void => Err(self.err("invalid pointer access")),
                     Value::Struct(s) => {
                         let sb = s.borrow();
                         match sb.fields.iter().find(|(n, _, _)| n == f) {
@@ -1028,8 +1229,14 @@ impl Instance {
                 }
             }
             Expr::Call(s, args) => {
+                if let Some(t) = self.cur_this() {
+                    let cls = t.borrow().ty;
+                    if let Some(fs) = self.prog.find_method(cls, *s).cloned() {
+                        return self.call_user(&fs, args, Some(t), host);
+                    }
+                }
                 if let Some(fs) = self.prog.funcs.get(s).cloned() {
-                    return self.call_user(&fs, args, host);
+                    return self.call_user(&fs, args, None, host);
                 }
                 let name = self.sym(*s).to_string();
                 self.call_builtin(&name, args, host)
@@ -1039,8 +1246,36 @@ impl Instance {
                 let name = self.sym(*m).to_string();
                 match ov {
                     Value::Obj(obj) => self.call_method(&obj, &name, args, host),
+                    Value::Struct(st) => {
+                        let cls = st.borrow().ty;
+                        match self.prog.find_method(cls, *m).cloned() {
+                            Some(fs) => self.call_user(&fs, args, Some(st), host),
+                            None => Err(self.err(format!("'{}' - undeclared method of '{}'", name, self.sym(cls)))),
+                        }
+                    }
+                    Value::Int(0) | Value::Void => Err(self.err("invalid pointer access")),
                     _ => Err(self.err(format!("'{}' - method call on a value that is not an object", name))),
                 }
+            }
+            Expr::ScopedCall(cls, m, args) => match self.prog.find_method(*cls, *m).cloned() {
+                Some(fs) => {
+                    let this = self.cur_this();
+                    self.call_user(&fs, args, this, host)
+                }
+                None => {
+                    if let Some(fs) = self.prog.funcs.get(m).cloned() {
+                        return self.call_user(&fs, args, None, host);
+                    }
+                    let name = self.sym(*m).to_string();
+                    self.call_builtin(&name, args, host)
+                }
+            },
+            Expr::New(cls, args) => self.construct(*cls, args, host),
+            Expr::Delete(e) => {
+                if let Value::Struct(st) = self.eval(e, host)? {
+                    self.destroy(&st, host)?;
+                }
+                Ok(Value::Void)
             }
             Expr::Unary(op, a) => {
                 let v = self.eval(a, host)?;
@@ -1074,6 +1309,18 @@ impl Instance {
                 }
                 let l = self.eval(a, host)?;
                 let r = self.eval(b, host)?;
+                if let Value::Struct(st) = &l {
+                    if let Some(f) = self.operator_method(st, &format!("operator{}", binop_text(*op))) {
+                        return self.call_values_this(&f, vec![r], Some(st.clone()), host);
+                    }
+                }
+                if matches!(op, BinOp::Eq | BinOp::Ne) && (matches!(l, Value::Struct(_)) || matches!(r, Value::Struct(_))) {
+                    let same = match (&l, &r) {
+                        (Value::Struct(x), Value::Struct(y)) => Rc::ptr_eq(x, y),
+                        _ => false,
+                    };
+                    return Ok(Value::Bool(if *op == BinOp::Eq { same } else { !same }));
+                }
                 self.binop(*op, l, r)
             }
             Expr::Assign(op, lhs, rhs) => {
@@ -1143,6 +1390,14 @@ impl Instance {
         if let Some(v) = self.lookup(s) {
             return Ok(v.borrow().v.clone());
         }
+        if let Some(v) = self.this_field(s) {
+            return Ok(v);
+        }
+        if self.sym(s) == "this" {
+            if let Some(t) = self.cur_this() {
+                return Ok(Value::Struct(t));
+            }
+        }
         if let Some(c) = self.prog.enum_consts.get(&s) {
             return Ok(Value::Int(*c));
         }
@@ -1184,7 +1439,12 @@ impl Instance {
                     var.borrow_mut().v = nv;
                     Ok(())
                 }
-                None => Err(self.err(format!("'{}' - l-value required", self.sym(*s)))),
+                None => {
+                    if self.set_this_field(*s, v) {
+                        return Ok(());
+                    }
+                    Err(self.err(format!("'{}' - l-value required", self.sym(*s))))
+                }
             },
             Expr::Index(a, i) => {
                 let av = self.eval(a, host)?;
@@ -1228,6 +1488,12 @@ impl Instance {
             }
             _ => Err(self.err("l-value required")),
         }
+    }
+
+    fn operator_method(&self, st: &StructRef, name: &str) -> Option<Rc<Func>> {
+        let sym = self.prog.interner.get(name)?;
+        let cls = st.borrow().ty;
+        self.prog.find_method(cls, sym).and_then(|v| v.first().cloned())
     }
 
     fn binop(&self, op: BinOp, l: Value, r: Value) -> R<Value> {
@@ -1340,6 +1606,30 @@ impl Instance {
     }
 }
 
+fn binop_text(op: BinOp) -> &'static str {
+    use BinOp::*;
+    match op {
+        Add => "+",
+        Sub => "-",
+        Mul => "*",
+        Div => "/",
+        Mod => "%",
+        Lt => "<",
+        Le => "<=",
+        Gt => ">",
+        Ge => ">=",
+        Eq => "==",
+        Ne => "!=",
+        And => "&&",
+        Or => "||",
+        BitAnd => "&",
+        BitOr => "|",
+        BitXor => "^",
+        Shl => "<<",
+        Shr => ">>",
+    }
+}
+
 fn const_dim(e: &Expr) -> usize {
     match e {
         Expr::Int(v) => (*v).max(0) as usize,
@@ -1355,7 +1645,7 @@ pub fn deep_copy_struct(s: &StructVal) -> StructVal {
             .iter()
             .map(|(n, t, v)| {
                 let v = match v {
-                    Value::Struct(x) => Value::Struct(Rc::new(RefCell::new(deep_copy_struct(&x.borrow())))),
+                    Value::Struct(x) if !matches!(t, Ty::Ptr(_) | Ty::Any) => Value::Struct(Rc::new(RefCell::new(deep_copy_struct(&x.borrow())))),
                     Value::Arr(a) => {
                         let ab = a.borrow();
                         Value::Arr(Rc::new(RefCell::new(Array {

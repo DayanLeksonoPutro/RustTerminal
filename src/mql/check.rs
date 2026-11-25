@@ -11,6 +11,8 @@ struct Checker<'a> {
     scopes: Vec<HashSet<Sym>>,
     globals: HashSet<Sym>,
     errors: Vec<CompileError>,
+    /// class whose method is being checked
+    cls: Option<Sym>,
     line: u32,
     col: u32,
 }
@@ -21,6 +23,7 @@ pub fn check(p: &Program) -> Vec<CompileError> {
         scopes: vec![],
         globals: p.globals.iter().map(|g| g.name).collect(),
         errors: vec![],
+        cls: None,
         line: 0,
         col: 0,
     };
@@ -40,6 +43,30 @@ pub fn check(p: &Program) -> Vec<CompileError> {
                 c.stmt(s);
             }
             c.scopes.pop();
+        }
+    }
+    let mut classes: Vec<_> = p.classes.keys().copied().collect();
+    classes.sort();
+    for cls in classes {
+        let info = &p.classes[&cls];
+        let mut mnames: Vec<_> = info.methods.keys().copied().collect();
+        mnames.sort();
+        for m in mnames {
+            for f in &info.methods[&m] {
+                c.cls = Some(cls);
+                c.scopes.push(f.params.iter().map(|x| x.name).collect());
+                c.line = f.line;
+                for (_, args) in &f.init_list {
+                    for a in args {
+                        c.expr(a);
+                    }
+                }
+                for s in &f.body {
+                    c.stmt(s);
+                }
+                c.scopes.pop();
+                c.cls = None;
+            }
         }
     }
     if p.kind == ProgramKind::Unknown {
@@ -66,7 +93,16 @@ impl<'a> Checker<'a> {
             return true;
         }
         let name = self.p.interner.name(s);
+        if let Some(cls) = self.cls {
+            if name == "this" || self.p.structs.get(&cls).is_some_and(|d| d.fields.iter().any(|f| f.0 == s)) {
+                return true;
+            }
+        }
         builtins::constant(name).is_some() || builtins::PREDEFINED_VARS.contains(&name)
+    }
+
+    fn is_method(&self, s: Sym) -> bool {
+        self.cls.is_some_and(|c| self.p.find_method(c, s).is_some())
     }
 
     fn stmt(&mut self, s: &Stmt) {
@@ -152,7 +188,7 @@ impl<'a> Checker<'a> {
             Expr::Var(s) => {
                 if !self.declared(*s) {
                     let n = self.p.interner.name(*s).to_string();
-                    if self.p.funcs.contains_key(s) || builtins::is_builtin_func(&n) {
+                    if self.p.funcs.contains_key(s) || builtins::is_builtin_func(&n) || self.is_method(*s) {
                         return; // function name used as a value
                     }
                     self.err(format!("'{}' - undeclared identifier", n));
@@ -165,7 +201,9 @@ impl<'a> Checker<'a> {
             Expr::Member(a, _) => self.expr(a),
             Expr::Call(s, args) => {
                 let name = self.p.interner.name(*s).to_string();
-                if let Some(fs) = self.p.funcs.get(s) {
+                if self.is_method(*s) {
+                    // method of the current class (overloads checked at run time)
+                } else if let Some(fs) = self.p.funcs.get(s) {
                     let ok = fs.iter().any(|f| {
                         let req = f.params.iter().filter(|p| p.default.is_none()).count();
                         args.len() >= req && args.len() <= f.params.len()
@@ -180,6 +218,12 @@ impl<'a> Checker<'a> {
                     self.expr(a);
                 }
             }
+            Expr::New(_, args) | Expr::ScopedCall(_, _, args) => {
+                for a in args {
+                    self.expr(a);
+                }
+            }
+            Expr::Delete(a) => self.expr(a),
             Expr::MethodCall(o, _, args) => {
                 self.expr(o);
                 for a in args {

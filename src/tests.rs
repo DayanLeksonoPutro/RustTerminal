@@ -122,3 +122,135 @@ fn runtime_errors() {
     let e = inst.call_event("OnStart", vec![], &mut run.host).unwrap_err();
     assert_eq!(e.msg, "zero divide");
 }
+
+/// Compile and run a script's OnStart, returning what it printed.
+fn run_script(src: &str) -> Vec<String> {
+    let prog = Rc::new(compile("script.mq5", src, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
+    let mut m = Market::new();
+    let bars = m.bars(0, Timeframe::H1).to_vec();
+    let spec = m.symbols[0].spec.clone();
+    let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+    let mut inst = crate::mql::Instance::new(prog, "EURUSD", Timeframe::H1, &HashMap::new());
+    inst.init(&mut run.host).unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
+    inst.call_event("OnStart", vec![], &mut run.host).unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
+    // log lines look like "time\tprogram\tmessage" or similar: keep only the message text
+    run.host.log.iter().map(|l| l.rsplit('\t').next().unwrap_or(l).to_string()).collect()
+}
+
+fn last_line(src: &str) -> String {
+    run_script(src).last().cloned().unwrap_or_default()
+}
+
+#[test]
+fn preprocessor() {
+    let src = r#"
+#define SQR(x) ((x)*(x))
+#define MAX(a,b) ((a)>(b)?(a):(b))
+#define STR(x) #x
+#define CAT(a,b) a##b
+#define TWICE(x) (SQR(x)*2)
+#define FLAG
+#ifdef FLAG
+int mode = 1;
+#else
+int mode = 2;
+#endif
+#ifndef FLAG
+int other = 5;
+#else
+int other = 6;
+#endif
+#ifdef __MQL5__
+int mql = 5;
+#endif
+#ifdef __MQL4__
+int mql = 4;
+#endif
+void OnStart() {
+   int CAT(my,Var) = 3;
+   Print(SQR(1+2), " ", MAX(4, 9), " ", STR(hello), " ", myVar, " ", TWICE(3), " ", mode, " ", other, " ", mql, " ", __FUNCTION__);
+}
+"#;
+    let out = last_line(src);
+    assert!(out.ends_with("9 9 hello 3 18 1 6 5 OnStart"), "{}", out);
+}
+
+#[test]
+fn classes() {
+    let src = r#"
+class CShape {
+protected:
+   string m_name;
+   static int s_count;
+public:
+   CShape(string name) : m_name(name) { s_count++; }
+   virtual ~CShape() { Print("bye ", m_name); }
+   virtual double Area() { return 0; }
+   string Name() const { return m_name; }
+   string Describe() { return m_name + "=" + DoubleToString(Area(), 1); }
+   static int Count() { return s_count; }
+};
+int CShape::s_count = 0;
+
+class CRect : public CShape {
+private:
+   double m_w, m_h;
+public:
+   CRect(double w, double h) : CShape("rect"), m_w(w), m_h(h) {}
+   virtual double Area() override { return m_w * m_h; }
+};
+
+class CSquare : public CRect {
+public:
+   CSquare(double s) : CRect(s, s) { m_name = "square"; }
+};
+
+class CCounter {
+   int m_n;
+public:
+   CCounter() { m_n = 10; }
+   void Add(int k) { m_n += k; }
+   void Add() { Add(1); }
+   int Get() { return this.m_n; }
+   bool operator==(const CCounter &o) { return m_n == o.Get(); }
+};
+
+class CHolder {
+public:
+   CCounter c;
+   CShape *items[];
+   void Push(CShape *s) { int n = ArraySize(items); ArrayResize(items, n + 1); items[n] = s; }
+};
+
+template<typename T>
+T Biggest(T a, T b) { return a > b ? a : b; }
+
+template<typename T>
+class CBox {
+   T m_v;
+public:
+   void Set(T v) { m_v = v; }
+   T Get() { return m_v; }
+};
+
+void OnStart() {
+   CRect r(2, 3);
+   CShape *s = new CSquare(4);
+   CHolder h;
+   h.c.Add(); h.c.Add(5);
+   h.Push(GetPointer(r)); h.Push(s);
+   double total = 0;
+   for(int i = 0; i < ArraySize(h.items); i++) total += h.items[i].Area();
+   CCounter a, b;
+   CBox<string> box; box.Set("hi");
+   CShape *none = NULL;
+   Print(r.Describe(), " ", s.Describe(), " ", total, " ", h.c.Get(), " ", CShape::Count(), " ", a == b, " ",
+         Biggest(3, 8), " ", Biggest(2.5, 1.5), " ", box.Get(), " ", none == NULL, " ", s != NULL, " ", CheckPointer(s) != POINTER_INVALID);
+   delete s;
+}
+"#;
+    let lines = run_script(src);
+    let joined = lines.join("\n");
+    assert!(joined.contains("rect=6.0 square=16.0 22 16 2 true 8 2.5 hi true true true"), "{}", joined);
+    assert!(lines.last().unwrap().ends_with("bye square"), "{}", joined);
+}
