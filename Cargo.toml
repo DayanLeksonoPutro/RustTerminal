@@ -1,0 +1,25 @@
+[package]
+name = "rust-terminal"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform trading terminal with charts, indicators, and a built-in engine for custom indicators and expert advisors"
+
+[[bin]]
+name = "rust-terminal"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui = "0.31"
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = "0.30"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
