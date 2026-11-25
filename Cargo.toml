@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "Cross-platform trading terminal with charts, indicators, and a built-in engine for custom indicators and expert advisors"
 
+[lib]
+name = "rust_terminal"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
 [[bin]]
 name = "rust-terminal"
 path = "src/main.rs"
@@ -18,6 +23,32 @@ ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 winit = "0.30"
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.30", features = ["android-native-activity"] }
+android_logger = "0.14"
+log = "0.4"
+
+[package.metadata.android]
+package = "dev.rustterminal.app"
+apk_name = "RustTerminal"
+build_targets = ["aarch64-linux-android"]
+resources = "android/res"
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 34
+
+[package.metadata.android.application]
+label = "Rust Terminal"
+icon = "@mipmap/ic_launcher"
+
+[package.metadata.android.application.activity]
+orientation = "unspecified"
+config_changes = "orientation|screenSize|keyboardHidden"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
 
 [profile.dev]
 opt-level = 1
