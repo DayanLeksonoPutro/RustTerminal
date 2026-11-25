@@ -506,10 +506,11 @@ impl Instance {
         };
         let ctor = info.methods.get(&cls).and_then(|fs| {
             fs.iter()
-                .find(|f| {
+                .filter(|f| {
                     let req = f.params.iter().filter(|p| p.default.is_none()).count();
                     args.len() >= req && args.len() <= f.params.len()
                 })
+                .max_by_key(|f| self.overload_score(f, &args))
                 .cloned()
         });
         if self.depth > 200 {
@@ -942,14 +943,37 @@ impl Instance {
     }
 
     fn call_user(&mut self, fs: &[Rc<Func>], args: &[Expr], this: Option<StructRef>, host: &mut dyn Host) -> R<Value> {
-        let f = fs
+        let fitting: Vec<&Rc<Func>> = fs
             .iter()
-            .find(|f| {
+            .filter(|f| {
                 let req = f.params.iter().filter(|p| p.default.is_none()).count();
                 args.len() >= req && args.len() <= f.params.len()
             })
-            .unwrap_or(&fs[0])
-            .clone();
+            .collect();
+        let f = if fitting.len() > 1 {
+            // overloads with the same number of parameters: choose by argument types
+            let vals = args.iter().map(|a| self.eval(a, host)).collect::<R<Vec<_>>>()?;
+            let hints: Vec<Option<bool>> = args.iter().map(|a| self.pointer_hint(a)).collect();
+            let mut best = fitting[0];
+            let mut best_score = i64::MIN;
+            for f in &fitting {
+                let mut sc = self.overload_score(f, &vals);
+                for (p, h) in f.params.iter().zip(hints.iter()) {
+                    sc += match (&p.ty, h) {
+                        (Ty::Ptr(_), Some(true)) | (Ty::Struct(_), Some(false)) => 2,
+                        (Ty::Ptr(_), Some(false)) | (Ty::Struct(_), Some(true)) => -2,
+                        _ => 0,
+                    };
+                }
+                if sc > best_score {
+                    best_score = sc;
+                    best = f;
+                }
+            }
+            best.clone()
+        } else {
+            fitting.first().copied().unwrap_or(&fs[0]).clone()
+        };
         let mut scope = vec![];
         let mut writebacks: Vec<(Expr, VarRef)> = vec![];
         for (i, p) in f.params.iter().enumerate() {
@@ -994,6 +1018,75 @@ impl Instance {
             self.assign(&e, v, host)?;
         }
         Ok(r)
+    }
+
+    /// How well argument values fit a function's parameters (higher is better).
+    pub fn overload_score(&self, f: &Func, vals: &[Value]) -> i64 {
+        let mut score = 0;
+        for (p, v) in f.params.iter().zip(vals.iter()) {
+            score += match (p.is_array, v) {
+                (true, Value::Arr(_)) => 4,
+                (true, _) | (false, Value::Arr(_)) => -20,
+                _ => match (&p.ty, v) {
+                    (Ty::Any, _) => 0,
+                    (Ty::Str, Value::Str(_)) => 3,
+                    (Ty::Str, _) => -4,
+                    (Ty::Double, Value::Double(_)) => 3,
+                    (Ty::Double, Value::Int(_) | Value::Bool(_)) => 1,
+                    (Ty::Int, Value::Int(_)) | (Ty::Bool, Value::Bool(_)) => 3,
+                    (Ty::Int | Ty::Bool, Value::Int(_) | Value::Bool(_)) => 2,
+                    (Ty::Int | Ty::Bool, Value::Double(_)) => 1,
+                    (Ty::Double | Ty::Int | Ty::Bool, Value::Str(_)) => -4,
+                    (Ty::Struct(s) | Ty::Ptr(s), Value::Struct(st)) => {
+                        let actual = st.borrow().ty;
+                        if actual == *s {
+                            4
+                        } else if self.derives_from(actual, *s) {
+                            2
+                        } else {
+                            -10
+                        }
+                    }
+                    (Ty::Ptr(_), Value::Void | Value::Int(0)) => 1,
+                    (Ty::Struct(_) | Ty::Ptr(_), _) => -10,
+                    (Ty::Object(_), Value::Obj(_)) => 3,
+                    _ => 0,
+                },
+            };
+        }
+        score
+    }
+
+    /// Whether an argument expression is a pointer (Some(true)), an object (Some(false)) or unknown.
+    fn pointer_hint(&self, e: &Expr) -> Option<bool> {
+        match e {
+            Expr::Cast(Ty::Ptr(_), _) | Expr::New(..) => Some(true),
+            Expr::Call(f, _) if self.sym(*f) == "GetPointer" => Some(true),
+            Expr::Var(s) if self.sym(*s) == "this" => Some(true),
+            Expr::Var(s) => {
+                let ty = match self.lookup(*s) {
+                    Some(v) => Some(v.borrow().ty.clone()),
+                    None => self.cur_this().and_then(|t| t.borrow().fields.iter().find(|f| f.0 == *s).map(|f| f.1.clone())),
+                };
+                match ty {
+                    Some(Ty::Ptr(_)) => Some(true),
+                    Some(Ty::Struct(_)) => Some(false),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn derives_from(&self, mut c: Sym, base: Sym) -> bool {
+        for _ in 0..64 {
+            match self.prog.classes.get(&c).and_then(|i| i.base) {
+                Some(b) if b == base => return true,
+                Some(b) => c = b,
+                None => return false,
+            }
+        }
+        false
     }
 
     // ---------- statements ----------

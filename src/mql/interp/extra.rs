@@ -176,6 +176,7 @@ pub(super) fn out_params(name: &str, argc: usize) -> Option<&'static [usize]> {
         ("TimeCurrent" | "TimeLocal" | "TimeGMT" | "TimeTradeServer", 1) => &[0],
         ("IndicatorParameters", 3) => &[1],
         ("SymbolInfoMarginRate", 4) => &[2, 3],
+        ("TextGetSize", 3) => &[1, 2],
         _ => return None,
     })
 }
@@ -226,6 +227,8 @@ impl Instance {
             }
             "IndicatorParameters" => (Value::Int(-1), vec![]),
             "SymbolInfoMarginRate" => (Value::Bool(true), vec![(0, Value::Double(1.0)), (1, Value::Double(1.0))]),
+            // text metrics approximated for a 10 px font
+            "TextGetSize" => (Value::Bool(true), vec![(0, Value::Int(as_(a, 0).chars().count() as i64 * 7)), (1, Value::Int(14))]),
             // getter overloads `F(..., &value)`: call the plain form and return its value
             _ => {
                 let v = self.call_builtin_values(name, &a[..a.len() - 1], host)?;
@@ -496,6 +499,17 @@ impl Instance {
                 Value::Int(n)
             }
             "SymbolIsSynchronized" => Value::Bool(true),
+            "typename" => Value::str(&match a.first() {
+                Some(Value::Int(_)) => "int".to_string(),
+                Some(Value::Double(_)) => "double".to_string(),
+                Some(Value::Bool(_)) => "bool".to_string(),
+                Some(Value::Str(_)) => "string".to_string(),
+                Some(Value::Struct(st)) => self.sym(st.borrow().ty).to_string(),
+                Some(Value::Obj(_)) => "object".to_string(),
+                Some(Value::Arr(_)) => "array".to_string(),
+                _ => "void".to_string(),
+            }),
+            "TextSetFont" | "TextOut" => Value::Bool(true),
             "MathIsInf" => Value::Bool(af(a, 0, 0.0).is_infinite()),
             "MathIsNaN" => Value::Bool(af(a, 0, 0.0).is_nan()),
             // OpenCL is not available: every call reports failure like a computer without OpenCL

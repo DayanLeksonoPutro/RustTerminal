@@ -170,7 +170,7 @@ pub const EXTRA_FUNCS: &[&str] = &[
     "CLProgramFree", "CLKernelCreate", "CLKernelFree", "CLBufferCreate", "CLBufferFree", "CLBufferRead", "CLBufferWrite",
     "CLSetKernelArg", "CLSetKernelArgMem", "CLExecute", "CLGetInfoInteger", "CLHandleType", "FileWriteStruct", "FileReadStruct",
     "MathIsInf", "MathIsNaN", "ChartXOnDropped", "ChartYOnDropped", "ChartTimeOnDropped", "ChartPriceOnDropped",
-    "ChartWindowOnDropped", "FileFindFirst", "FileFindNext", "FileFindClose",
+    "ChartWindowOnDropped", "FileFindFirst", "FileFindNext", "FileFindClose", "typename", "TextSetFont", "TextOut", "TextGetSize",
 ];
 
 pub fn is_builtin_func(name: &str) -> bool {
@@ -653,6 +653,9 @@ fn table() -> &'static HashMap<String, Const> {
             ("OBJ_PERIOD_H6", 16384), ("OBJ_PERIOD_H8", 32768), ("OBJ_PERIOD_H12", 65536),
             ("TYPE_VECTOR", 15), ("TYPE_VECTORF", 16), ("TYPE_VECTORC", 17), ("TYPE_VECTORCF", 18), ("TYPE_MATRIX", 19),
             ("TYPE_MATRIXF", 20), ("TYPE_MATRIXC", 21), ("TYPE_MATRIXCF", 22),
+            ("TA_LEFT", 0), ("TA_CENTER", 2), ("TA_RIGHT", 1), ("TA_TOP", 0), ("TA_VCENTER", 8), ("TA_BOTTOM", 4),
+            ("FW_DONTCARE", 0), ("FW_THIN", 100), ("FW_NORMAL", 400), ("FW_BOLD", 700), ("FW_HEAVY", 900),
+            ("FONT_ITALIC", 2), ("FONT_UNDERLINE", 4), ("FONT_STRIKEOUT", 8),
             ("CL_USE_ANY", 0), ("CL_USE_CPU_ONLY", 1), ("CL_USE_GPU_ONLY", 2), ("CL_USE_GPU_DOUBLE_ONLY", 3),
             ("CL_MEM_READ_WRITE", 1), ("CL_MEM_WRITE_ONLY", 2), ("CL_MEM_READ_ONLY", 4), ("CL_MEM_ALLOC_HOST_PTR", 8),
 
