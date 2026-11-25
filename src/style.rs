@@ -74,3 +74,12 @@ pub fn draw_toolbar_grip(painter: &egui::Painter, rect: egui::Rect) {
     painter.line_segment([egui::pos2(x + 3.0, top), egui::pos2(x + 3.0, bot)], Stroke::new(1.0_f32, SUNKEN_DARK));
     painter.line_segment([egui::pos2(x + 4.0, top + 1.0), egui::pos2(x + 4.0, bot + 1.0)], Stroke::new(1.0_f32, SUNKEN_LIGHT));
 }
+
+/// A shortcut label as the platform writes it: "Ctrl+M" becomes "Cmd+M" on macOS.
+pub fn sc(label: &str) -> String {
+    if cfg!(target_os = "macos") {
+        label.replace("Ctrl+", "Cmd+")
+    } else {
+        label.to_string()
+    }
+}

@@ -1008,7 +1008,7 @@ impl Chart {
                     }
                 });
             }
-            if ui.button("Objects List...   Ctrl+B").clicked() {
+            if ui.button(crate::style::sc("Objects List...   Ctrl+B")).clicked() {
                 out.actions.push(ChartAction::ObjectsList);
                 ui.close_menu();
             }

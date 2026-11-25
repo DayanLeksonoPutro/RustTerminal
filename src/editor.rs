@@ -141,7 +141,7 @@ impl Editor {
                             }
                         }
                     });
-                    if ui.button("💾 Save").on_hover_text("Ctrl+S").clicked() {
+                    if ui.button("💾 Save").on_hover_text(crate::style::sc("Ctrl+S")).clicked() {
                         self.save_current();
                         self.tree_dirty = true;
                     }

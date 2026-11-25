@@ -36,6 +36,11 @@ fn main() -> eframe::Result<()> {
         .with_title("Rust Terminal — Simulated-Demo")
         .with_inner_size([1440.0, 900.0])
         .with_min_inner_size([900.0, 560.0]);
+    if let Ok(img) = image::load_from_memory(include_bytes!("../assets/icon-256.png")) {
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        viewport = viewport.with_icon(egui::IconData { rgba: rgba.into_raw(), width: w, height: h });
+    }
     if screenshot.is_some() {
         viewport = viewport.with_active(false);
         #[cfg(target_os = "windows")]

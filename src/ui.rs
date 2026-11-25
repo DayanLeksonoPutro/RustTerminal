@@ -168,15 +168,15 @@ fn menu_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                 }
             });
             ui.menu_button("View", |ui| {
-                ui.checkbox(&mut app.show_market_watch, "Market Watch   Ctrl+M");
-                ui.checkbox(&mut app.show_navigator, "Navigator   Ctrl+N");
-                if ui.button("Data Window   Ctrl+D").clicked() {
+                ui.checkbox(&mut app.show_market_watch, crate::style::sc("Market Watch   Ctrl+M"));
+                ui.checkbox(&mut app.show_navigator, crate::style::sc("Navigator   Ctrl+N"));
+                if ui.button(crate::style::sc("Data Window   Ctrl+D")).clicked() {
                     app.left_tab = LeftTab::DataWindow;
                     app.show_navigator = true;
                     ui.close_menu();
                 }
-                ui.checkbox(&mut app.show_toolbox, "Toolbox   Ctrl+T");
-                ui.checkbox(&mut app.show_tester, "Strategy Tester   Ctrl+R");
+                ui.checkbox(&mut app.show_toolbox, crate::style::sc("Toolbox   Ctrl+T"));
+                ui.checkbox(&mut app.show_tester, crate::style::sc("Strategy Tester   Ctrl+R"));
                 if ui.button("MetaEditor   F4").clicked() {
                     app.editor.open = true;
                     ui.close_menu();
@@ -229,9 +229,9 @@ fn menu_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                     ui.radio_value(&mut c.mode, ChartMode::Candles, "Candlesticks");
                     ui.radio_value(&mut c.mode, ChartMode::Line, "Line Chart");
                     ui.separator();
-                    ui.checkbox(&mut c.grid, "Grid   Ctrl+G");
-                    ui.checkbox(&mut c.volumes, "Volumes   Ctrl+L");
-                    ui.checkbox(&mut c.period_sep, "Period Separators   Ctrl+Y");
+                    ui.checkbox(&mut c.grid, crate::style::sc("Grid   Ctrl+G"));
+                    ui.checkbox(&mut c.volumes, crate::style::sc("Volumes   Ctrl+L"));
+                    ui.checkbox(&mut c.period_sep, crate::style::sc("Period Separators   Ctrl+Y"));
                     ui.checkbox(&mut c.autoscroll, "Auto Scroll");
                     ui.checkbox(&mut c.shift, "Chart Shift");
                     ui.checkbox(&mut c.one_click, "One Click Trading");
@@ -253,7 +253,7 @@ fn menu_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                     }
                 });
                 ui.separator();
-                if ui.button("Objects List   Ctrl+B").clicked() {
+                if ui.button(crate::style::sc("Objects List   Ctrl+B")).clicked() {
                     app.dialogs.objects = true;
                     ui.close_menu();
                 }
@@ -273,11 +273,11 @@ fn menu_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                     app.editor.open = true;
                     ui.close_menu();
                 }
-                if ui.button("Strategy Tester   Ctrl+R").clicked() {
+                if ui.button(crate::style::sc("Strategy Tester   Ctrl+R")).clicked() {
                     app.show_tester = true;
                     ui.close_menu();
                 }
-                ui.checkbox(&mut app.algo, "Algo Trading   Ctrl+E");
+                ui.checkbox(&mut app.algo, crate::style::sc("Algo Trading   Ctrl+E"));
                 let mut live = app.market.live_running();
                 if ui.checkbox(&mut live, "Live Prices (crypto)").changed() {
                     if live {
@@ -577,16 +577,16 @@ fn toolbar(app: &mut TerminalApp, ctx: &egui::Context) {
                 let sym = app.charts.get(ai).map(|c| c.chart.symbol.clone()).unwrap_or_else(|| "EURUSD".into());
                 app.open_chart(&sym, Timeframe::H1);
             }
-            if icon_button(ui, Icon::MarketWatch, app.show_market_watch, "Market Watch (Ctrl+M)").clicked() {
+            if icon_button(ui, Icon::MarketWatch, app.show_market_watch, &crate::style::sc("Market Watch (Ctrl+M)")).clicked() {
                 app.show_market_watch = !app.show_market_watch;
             }
-            if icon_button(ui, Icon::Navigator, app.show_navigator, "Navigator (Ctrl+N)").clicked() {
+            if icon_button(ui, Icon::Navigator, app.show_navigator, &crate::style::sc("Navigator (Ctrl+N)")).clicked() {
                 app.show_navigator = !app.show_navigator;
             }
-            if icon_button(ui, Icon::Toolbox, app.show_toolbox, "Toolbox (Ctrl+T)").clicked() {
+            if icon_button(ui, Icon::Toolbox, app.show_toolbox, &crate::style::sc("Toolbox (Ctrl+T)")).clicked() {
                 app.show_toolbox = !app.show_toolbox;
             }
-            if icon_button(ui, Icon::Tester, app.show_tester, "Strategy Tester (Ctrl+R)").clicked() {
+            if icon_button(ui, Icon::Tester, app.show_tester, &crate::style::sc("Strategy Tester (Ctrl+R)")).clicked() {
                 app.show_tester = !app.show_tester;
             }
             if icon_button(ui, Icon::NewOrder, false, "New Order (F9)").clicked() {
@@ -605,7 +605,7 @@ fn toolbar(app: &mut TerminalApp, ctx: &egui::Context) {
                 (Color32::from_rgb(80, 80, 80), Color32::from_rgb(238, 238, 240), Color32::from_rgb(180, 180, 185))
             };
             let (rect, resp) = ui.allocate_exact_size(egui::vec2(98.0, 22.0), egui::Sense::click());
-            let resp = resp.on_hover_text("Allow automated trading (Ctrl+E)");
+            let resp = resp.on_hover_text(crate::style::sc("Allow automated trading (Ctrl+E)"));
             let p = ui.painter();
             p.rect_filled(rect, 1.0, algo_bg);
             p.rect_stroke(rect, 1.0, egui::Stroke::new(1.0_f32, border_col), egui::StrokeKind::Inside);
@@ -1061,7 +1061,7 @@ fn toolbox(app: &mut TerminalApp, ui: &mut egui::Ui) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("✖").on_hover_text("Hide Toolbox (Ctrl+T)").clicked() {
+            if ui.small_button("✖").on_hover_text(crate::style::sc("Hide Toolbox (Ctrl+T)")).clicked() {
                 app.show_toolbox = false;
             }
         });
