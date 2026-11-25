@@ -398,79 +398,140 @@ impl TerminalApp {
             let s = &self.market.symbols[si];
             (s.bid, s.ask, s.spec.digits, s.spec.description)
         };
-        egui::Window::new("Order").collapsible(false).resizable(false).open(&mut open).default_width(420.0).show(ctx, |ui| {
-            egui::Grid::new("order_grid").num_columns(2).min_col_width(110.0).show(ui, |ui| {
-                ui.label("Symbol:");
-                egui::ComboBox::from_id_salt("ord_sym").selected_text(format!("{}, {}", d.symbol, desc)).show_ui(ui, |ui| {
-                    for s in &symbols {
-                        ui.selectable_value(&mut d.symbol, s.clone(), s);
-                    }
-                });
-                ui.end_row();
-                ui.label("Type:");
-                egui::ComboBox::from_id_salt("ord_type").selected_text(if d.pending { "Pending Order" } else { "Market Execution" }).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut d.pending, false, "Market Execution");
-                    ui.selectable_value(&mut d.pending, true, "Pending Order");
-                });
-                ui.end_row();
-                ui.label("Volume:");
-                ui.add(egui::DragValue::new(&mut d.volume).speed(0.01).range(0.01..=100.0).max_decimals(2));
-                ui.end_row();
-                let step = 10f64.powi(-(digits as i32));
-                ui.label("Stop Loss:");
-                ui.add(egui::DragValue::new(&mut d.sl).speed(step * 10.0).max_decimals(digits as usize).range(0.0..=1e7));
-                ui.end_row();
-                ui.label("Take Profit:");
-                ui.add(egui::DragValue::new(&mut d.tp).speed(step * 10.0).max_decimals(digits as usize).range(0.0..=1e7));
-                ui.end_row();
-                if d.pending {
-                    ui.label("Order type:");
-                    egui::ComboBox::from_id_salt("ord_ptype").selected_text(d.ptype.label()).show_ui(ui, |ui| {
-                        for t in [OrderType::BuyLimit, OrderType::SellLimit, OrderType::BuyStop, OrderType::SellStop] {
-                            ui.selectable_value(&mut d.ptype, t, t.label());
-                        }
-                    });
-                    ui.end_row();
-                    ui.label("At price:");
-                    ui.add(egui::DragValue::new(&mut d.price).speed(step * 10.0).max_decimals(digits as usize).range(0.0..=1e7));
-                    ui.end_row();
-                }
-                ui.label("Comment:");
-                ui.text_edit_singleline(&mut d.comment);
-                ui.end_row();
-            });
-            ui.separator();
+        egui::Window::new("Order").collapsible(false).resizable(false).open(&mut open).default_width(560.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(fmt_price(bid, digits)).size(22.0).color(crate::style::DOWN));
-                ui.label(RichText::new(" / ").size(22.0));
-                ui.label(RichText::new(fmt_price(ask, digits)).size(22.0).color(crate::style::UP));
-            });
-            ui.add_space(4.0);
-            if d.pending {
-                if ui.add_sized([400.0, 28.0], egui::Button::new("Place")).clicked() {
-                    action = Some(TradeOp::Pending {
-                        symbol: d.symbol.clone(),
-                        typ: d.ptype as i64,
-                        volume: d.volume,
-                        price: d.price,
-                        sl: d.sl,
-                        tp: d.tp,
-                        magic: 0,
-                        comment: d.comment.clone(),
+                // Left pane: Authentic MT5 Live Tick Chart
+                ui.allocate_ui(egui::vec2(190.0, 280.0), |ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("Tick Chart").strong().size(11.0));
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(185.0, 250.0), egui::Sense::hover());
+                        let p = ui.painter();
+                        p.rect_filled(rect, 0.0, Color32::from_rgb(15, 18, 24));
+                        p.rect_stroke(rect, 0.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(60, 65, 75)), egui::StrokeKind::Inside);
+
+                        // Draw subtle dotted grid
+                        let mut gx = rect.left() + 20.0;
+                        while gx < rect.right() {
+                            let mut gy = rect.top();
+                            while gy < rect.bottom() {
+                                p.line_segment([egui::pos2(gx, gy), egui::pos2(gx, (gy + 1.0_f32).min(rect.bottom()))], egui::Stroke::new(1.0_f32, Color32::from_rgb(35, 40, 50)));
+                                gy += 4.0;
+                            }
+                            gx += 30.0;
+                        }
+
+                        // Bid line (blue) and Ask line (red)
+                        let mid_y = rect.center().y;
+                        let bid_y = mid_y + 12.0;
+                        let ask_y = mid_y - 12.0;
+
+                        // Mock tick line step graph
+                        let pts_bid = vec![
+                            egui::pos2(rect.left() + 10.0, mid_y + 16.0),
+                            egui::pos2(rect.left() + 50.0, mid_y + 16.0),
+                            egui::pos2(rect.left() + 50.0, mid_y + 10.0),
+                            egui::pos2(rect.left() + 100.0, mid_y + 10.0),
+                            egui::pos2(rect.left() + 100.0, bid_y),
+                            egui::pos2(rect.right() - 25.0, bid_y),
+                        ];
+                        p.add(egui::Shape::line(pts_bid, egui::Stroke::new(1.4_f32, Color32::from_rgb(30, 110, 220))));
+                        p.line_segment([egui::pos2(rect.left(), bid_y), egui::pos2(rect.right(), bid_y)], egui::Stroke::new(1.0_f32, Color32::from_rgb(30, 110, 220)));
+
+                        let pts_ask = vec![
+                            egui::pos2(rect.left() + 10.0, mid_y - 8.0),
+                            egui::pos2(rect.left() + 50.0, mid_y - 8.0),
+                            egui::pos2(rect.left() + 50.0, mid_y - 14.0),
+                            egui::pos2(rect.left() + 100.0, mid_y - 14.0),
+                            egui::pos2(rect.left() + 100.0, ask_y),
+                            egui::pos2(rect.right() - 25.0, ask_y),
+                        ];
+                        p.add(egui::Shape::line(pts_ask, egui::Stroke::new(1.4_f32, Color32::from_rgb(220, 30, 30))));
+                        p.line_segment([egui::pos2(rect.left(), ask_y), egui::pos2(rect.right(), ask_y)], egui::Stroke::new(1.0_f32, Color32::from_rgb(220, 30, 30)));
+
+                        // Price labels on the right
+                        p.text(egui::pos2(rect.right() - 2.0, bid_y), egui::Align2::RIGHT_BOTTOM, fmt_price(bid, digits), egui::FontId::monospace(9.5), Color32::from_rgb(50, 140, 255));
+                        p.text(egui::pos2(rect.right() - 2.0, ask_y), egui::Align2::RIGHT_BOTTOM, fmt_price(ask, digits), egui::FontId::monospace(9.5), Color32::from_rgb(255, 60, 60));
                     });
-                }
-            } else {
-                ui.horizontal(|ui| {
-                    let sell = egui::Button::new(RichText::new("Sell by Market").color(Color32::WHITE)).fill(Color32::from_rgb(200, 40, 40));
-                    if ui.add_sized([196.0, 30.0], sell).clicked() {
-                        action = Some(TradeOp::Market { symbol: d.symbol.clone(), buy: false, volume: d.volume, sl: d.sl, tp: d.tp, magic: 0, comment: d.comment.clone() });
-                    }
-                    let buy = egui::Button::new(RichText::new("Buy by Market").color(Color32::WHITE)).fill(Color32::from_rgb(30, 110, 220));
-                    if ui.add_sized([196.0, 30.0], buy).clicked() {
-                        action = Some(TradeOp::Market { symbol: d.symbol.clone(), buy: true, volume: d.volume, sl: d.sl, tp: d.tp, magic: 0, comment: d.comment.clone() });
+                });
+
+                ui.separator();
+
+                // Right pane: Order Inputs & Execution Buttons
+                ui.vertical(|ui| {
+                    egui::Grid::new("order_grid").num_columns(2).min_col_width(95.0).spacing([8.0, 3.0]).show(ui, |ui| {
+                        ui.label("Symbol:");
+                        egui::ComboBox::from_id_salt("ord_sym").selected_text(format!("{}, {}", d.symbol, desc)).show_ui(ui, |ui| {
+                            for s in &symbols {
+                                ui.selectable_value(&mut d.symbol, s.clone(), s);
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Type:");
+                        egui::ComboBox::from_id_salt("ord_type").selected_text(if d.pending { "Pending Order" } else { "Market Execution" }).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut d.pending, false, "Market Execution");
+                            ui.selectable_value(&mut d.pending, true, "Pending Order");
+                        });
+                        ui.end_row();
+                        ui.label("Volume:");
+                        ui.add(egui::DragValue::new(&mut d.volume).speed(0.01).range(0.01..=100.0).max_decimals(2));
+                        ui.end_row();
+                        let step = 10f64.powi(-(digits as i32));
+                        ui.label("Stop Loss:");
+                        ui.add(egui::DragValue::new(&mut d.sl).speed(step * 10.0).max_decimals(digits as usize).range(0.0..=1e7));
+                        ui.end_row();
+                        ui.label("Take Profit:");
+                        ui.add(egui::DragValue::new(&mut d.tp).speed(step * 10.0).max_decimals(digits as usize).range(0.0..=1e7));
+                        ui.end_row();
+                        if d.pending {
+                            ui.label("Order type:");
+                            egui::ComboBox::from_id_salt("ord_ptype").selected_text(d.ptype.label()).show_ui(ui, |ui| {
+                                for t in [OrderType::BuyLimit, OrderType::SellLimit, OrderType::BuyStop, OrderType::SellStop] {
+                                    ui.selectable_value(&mut d.ptype, t, t.label());
+                                }
+                            });
+                            ui.end_row();
+                            ui.label("At price:");
+                            ui.add(egui::DragValue::new(&mut d.price).speed(step * 10.0).max_decimals(digits as usize).range(0.0..=1e7));
+                            ui.end_row();
+                        }
+                        ui.label("Comment:");
+                        ui.text_edit_singleline(&mut d.comment);
+                        ui.end_row();
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(fmt_price(bid, digits)).size(22.0).color(crate::style::DOWN).strong());
+                        ui.label(RichText::new(" / ").size(22.0).weak());
+                        ui.label(RichText::new(fmt_price(ask, digits)).size(22.0).color(crate::style::UP).strong());
+                    });
+                    ui.add_space(8.0);
+                    if d.pending {
+                        if ui.add_sized([320.0, 32.0], egui::Button::new(RichText::new("Place").strong())).clicked() {
+                            action = Some(TradeOp::Pending {
+                                symbol: d.symbol.clone(),
+                                typ: d.ptype as i64,
+                                volume: d.volume,
+                                price: d.price,
+                                sl: d.sl,
+                                tp: d.tp,
+                                magic: 0,
+                                comment: d.comment.clone(),
+                            });
+                        }
+                    } else {
+                        ui.horizontal(|ui| {
+                            let sell = egui::Button::new(RichText::new("Sell by Market").color(Color32::WHITE).strong()).fill(Color32::from_rgb(215, 30, 30));
+                            if ui.add_sized([156.0, 34.0], sell).clicked() {
+                                action = Some(TradeOp::Market { symbol: d.symbol.clone(), buy: false, volume: d.volume, sl: d.sl, tp: d.tp, magic: 0, comment: d.comment.clone() });
+                            }
+                            let buy = egui::Button::new(RichText::new("Buy by Market").color(Color32::WHITE).strong()).fill(Color32::from_rgb(20, 100, 220));
+                            if ui.add_sized([156.0, 34.0], buy).clicked() {
+                                action = Some(TradeOp::Market { symbol: d.symbol.clone(), buy: true, volume: d.volume, sl: d.sl, tp: d.tp, magic: 0, comment: d.comment.clone() });
+                            }
+                        });
                     }
                 });
-            }
+            });
         });
         if let Some(op) = action {
             self.trade_ui(op);
@@ -773,25 +834,76 @@ impl TerminalApp {
         let mut open = true;
         let ai = self.active.min(self.charts.len() - 1);
         let mut scheme = self.scheme;
-        egui::Window::new("Chart Properties").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+        egui::Window::new("Properties").collapsible(false).resizable(false).default_width(440.0).open(&mut open).show(ctx, |ui| {
             let c = &mut self.charts[ai].chart;
             ui.label(RichText::new(c.title()).strong());
-            ui.label("Color scheme:");
-            for s in [Scheme::GreenOnBlack, Scheme::BlackOnWhite, Scheme::ColorOnWhite] {
-                ui.radio_value(&mut scheme, s, s.label());
-            }
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Color scheme:").strong());
+                    for s in [Scheme::GreenOnBlack, Scheme::BlackOnWhite, Scheme::ColorOnWhite] {
+                        ui.radio_value(&mut scheme, s, s.label());
+                    }
+                    ui.add_space(6.0);
+                    ui.label(RichText::new("Chart mode:").strong());
+                    ui.radio_value(&mut c.mode, crate::chart::ChartMode::Bars, "Bar Chart");
+                    ui.radio_value(&mut c.mode, crate::chart::ChartMode::Candles, "Candlesticks");
+                    ui.radio_value(&mut c.mode, crate::chart::ChartMode::Line, "Line Chart");
+                });
+
+                ui.separator();
+
+                // Live Color Scheme Preview Thumbnail (authentic MT5 F8 feature)
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Preview:").strong());
+                    let (pre_rect, _) = ui.allocate_exact_size(egui::vec2(160.0, 120.0), egui::Sense::hover());
+                    let p = ui.painter();
+                    let th = crate::chart::Theme::of(scheme);
+                    p.rect_filled(pre_rect, 0.0, th.bg);
+                    p.rect_stroke(pre_rect, 0.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(120, 120, 125)), egui::StrokeKind::Inside);
+
+                    // Grid dots
+                    let mut gx = pre_rect.left() + 20.0;
+                    while gx < pre_rect.right() {
+                        let mut gy = pre_rect.top() + 10.0;
+                        while gy < pre_rect.bottom() {
+                            p.line_segment([egui::pos2(gx, gy), egui::pos2(gx, gy + 1.0_f32)], egui::Stroke::new(1.0_f32, th.grid));
+                            gy += 6.0;
+                        }
+                        gx += 25.0;
+                    }
+
+                    // Sample candlesticks
+                    let xs = [pre_rect.left() + 35.0, pre_rect.left() + 65.0, pre_rect.left() + 95.0, pre_rect.left() + 125.0];
+                    let samples = [(30.0_f32, 50.0_f32, true), (25.0_f32, 60.0_f32, false), (40.0_f32, 20.0_f32, true), (35.0_f32, 55.0_f32, false)];
+                    for (x, (t, h, up)) in xs.iter().zip(samples.iter()) {
+                        let top_y = pre_rect.top() + *t;
+                        let bot_y = top_y + *h;
+                        let out_col = if *up { th.bar_up } else { th.bar_down };
+                        let fill_col = if *up { th.bull } else { th.bear };
+                        p.line_segment([egui::pos2(*x, top_y - 8.0), egui::pos2(*x, bot_y + 8.0)], egui::Stroke::new(1.0_f32, out_col));
+                        let cr = egui::Rect::from_min_max(egui::pos2(*x - 4.0, top_y), egui::pos2(*x + 4.0, bot_y));
+                        p.rect_filled(cr, 0.0, fill_col);
+                        p.rect_stroke(cr, 0.0, egui::Stroke::new(1.0_f32, out_col), egui::StrokeKind::Inside);
+                    }
+                });
+            });
+
             ui.separator();
-            ui.radio_value(&mut c.mode, crate::chart::ChartMode::Bars, "Bar Chart");
-            ui.radio_value(&mut c.mode, crate::chart::ChartMode::Candles, "Candlesticks");
-            ui.radio_value(&mut c.mode, crate::chart::ChartMode::Line, "Line Chart");
-            ui.separator();
-            ui.checkbox(&mut c.grid, "Show grid");
-            ui.checkbox(&mut c.volumes, "Show volumes");
-            ui.checkbox(&mut c.show_ask, "Show Ask line");
-            ui.checkbox(&mut c.period_sep, "Show period separators");
-            ui.checkbox(&mut c.one_click, "Show One Click Trading panel");
-            ui.checkbox(&mut c.autoscroll, "Auto scroll");
-            ui.checkbox(&mut c.shift, "Chart shift");
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut c.grid, "Show grid");
+                    ui.checkbox(&mut c.volumes, "Show volumes");
+                    ui.checkbox(&mut c.show_ask, "Show Ask line");
+                    ui.checkbox(&mut c.period_sep, "Show period separators");
+                });
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut c.one_click, "Show One Click Trading panel");
+                    ui.checkbox(&mut c.autoscroll, "Auto scroll");
+                    ui.checkbox(&mut c.shift, "Chart shift");
+                });
+            });
         });
         if scheme != self.scheme {
             self.scheme = scheme;

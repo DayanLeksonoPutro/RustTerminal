@@ -260,7 +260,7 @@ impl Chart {
             shift: true,
             grid: true,
             volumes: false,
-            show_ask: false,
+            show_ask: true,
             period_sep: false,
             one_click: true,
             lots: 0.10,
@@ -444,13 +444,23 @@ impl Chart {
         let price_of_y = |y: f32| lo + ((main_rect.bottom() - y) / main_rect.height()) as f64 * (hi - lo);
 
         // ----- grid & price scale -----
+        // Watermark in background (authentic MT5)
+        let wm_text = format!("{}, {}", self.symbol, self.tf.label());
+        painter.text(main_rect.center(), Align2::CENTER_CENTER, wm_text, FontId::proportional(54.0), th.fg.gamma_multiply(0.06));
+
+        if self.shift {
+            let sx = plot_right - margin;
+            painter.add(Shape::convex_polygon(vec![pos2(sx, main_rect.top() + 7.0), pos2(sx - 4.5, main_rect.top() + 1.0), pos2(sx + 4.5, main_rect.top() + 1.0)], th.fg.gamma_multiply(0.4), Stroke::NONE));
+            painter.add(Shape::convex_polygon(vec![pos2(sx, plot_bottom - 7.0), pos2(sx - 4.5, plot_bottom - 1.0), pos2(sx + 4.5, plot_bottom - 1.0)], th.fg.gamma_multiply(0.4), Stroke::NONE));
+        }
+
         let font = FontId::monospace(11.0);
         let step = nice_step((hi - lo) / (main_rect.height() as f64 / 40.0).max(2.0));
         let mut p = (lo / step).ceil() * step;
         while p < hi {
             let y = y_main(p);
             if self.grid {
-                dashed_h(&painter, main_rect.left(), plot_right, y, th.grid);
+                dotted_h(&painter, main_rect.left(), plot_right, y, th.grid);
             }
             painter.text(pos2(plot_right + 4.0, y), Align2::LEFT_CENTER, fmt_price(p, digits), font.clone(), th.fg);
             p += step;
@@ -460,7 +470,7 @@ impl Chart {
             if i % label_every == 0 {
                 let x = x_of(i as f32);
                 if self.grid {
-                    dashed_v(&painter, x, main_rect.top(), plot_bottom, th.grid);
+                    dotted_v(&painter, x, main_rect.top(), plot_bottom, th.grid);
                 }
                 let t = bars[i].time;
                 let label = if secs >= 86400 { fmt_time(t, false)[..10].to_string() } else { fmt_time(t, false)[5..].to_string() };
@@ -539,13 +549,13 @@ impl Chart {
         // ----- bid / ask lines -----
         let yb = y_main(inp.bid);
         if yb > main_rect.top() && yb < main_rect.bottom() {
-            painter.line_segment([pos2(main_rect.left(), yb), pos2(plot_right, yb)], Stroke::new(1.0_f32, th.bid));
-            price_tag(&painter, plot_right, yb, &fmt_price(inp.bid, digits), th.bid, th.bg);
+            dotted_h(&painter, main_rect.left(), plot_right, yb, th.bid);
+            price_tag(&painter, plot_right, yb, &fmt_price(inp.bid, digits), th.bid, Color32::WHITE);
         }
         if self.show_ask {
             let ya = y_main(inp.ask);
             if ya > main_rect.top() && ya < main_rect.bottom() {
-                painter.line_segment([pos2(main_rect.left(), ya), pos2(plot_right, ya)], Stroke::new(1.0_f32, th.ask));
+                dotted_h(&painter, main_rect.left(), plot_right, ya, th.ask);
                 price_tag(&painter, plot_right, ya, &fmt_price(inp.ask, digits), th.ask, Color32::WHITE);
             }
         }
@@ -727,9 +737,31 @@ impl Chart {
             sub_info.push((r, slo, shi));
         }
 
-        // ----- header: symbol, one-click panel, comment, expert badge -----
-        let desc = format!("{}, {}:  {}", self.symbol, self.tf.label(), inp.spec.description);
-        painter.text(main_rect.left_top() + vec2(6.0, 4.0), Align2::LEFT_TOP, desc, FontId::proportional(12.0), th.fg);
+        // ----- header: symbol, OHLC, one-click panel, comment, expert badge -----
+        let active_bar = hover_pos
+            .filter(|p| main_rect.contains(*p))
+            .and_then(|hp| {
+                let idx = idx_of(hp.x).round();
+                if idx >= 0.0 && (idx as usize) < n {
+                    Some(&bars[idx as usize])
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(&bars[n - 1]);
+
+        let ohlc_info = format!(
+            "{}, {}   O: {}   H: {}   L: {}   C: {}   V: {}",
+            self.symbol,
+            self.tf.label(),
+            fmt_price(active_bar.open, digits),
+            fmt_price(active_bar.high, digits),
+            fmt_price(active_bar.low, digits),
+            fmt_price(active_bar.close, digits),
+            active_bar.tick_volume
+        );
+        painter.text(main_rect.left_top() + vec2(6.0, 4.0), Align2::LEFT_TOP, ohlc_info, FontId::monospace(11.0), th.fg);
+
         let mut header_y = header_top;
         let mut overlay_labels: Vec<String> = self.builtins.iter().filter(|b| !b.kind.separate_window()).map(|b| b.label()).collect();
         overlay_labels.extend(inp.customs.iter().filter(|c| !c.separate).map(|c| match &c.error {
@@ -741,20 +773,41 @@ impl Chart {
             header_y += 16.0;
         }
         if self.one_click {
-            painter.rect_filled(sell_r, 2.0, Color32::from_rgb(200, 40, 40));
-            painter.rect_filled(buy_r, 2.0, Color32::from_rgb(30, 110, 220));
-            painter.rect_filled(lots_r, 2.0, Color32::from_rgb(235, 235, 235));
+            // Win32 MT5 styled One-Click Trading widget
+            painter.rect_filled(sell_r, 1.0, Color32::from_rgb(215, 30, 30));
+            painter.rect_stroke(sell_r, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(160, 20, 20)), egui::StrokeKind::Inside);
+            painter.rect_filled(buy_r, 1.0, Color32::from_rgb(20, 100, 220));
+            painter.rect_stroke(buy_r, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(10, 70, 160)), egui::StrokeKind::Inside);
+            painter.rect_filled(lots_r, 1.0, Color32::from_rgb(245, 245, 248));
+            painter.rect_stroke(lots_r, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(180, 180, 185)), egui::StrokeKind::Inside);
+
             painter.text(sell_r.center_top() + vec2(0.0, 3.0), Align2::CENTER_TOP, "SELL", FontId::proportional(10.0), Color32::WHITE);
             painter.text(buy_r.center_top() + vec2(0.0, 3.0), Align2::CENTER_TOP, "BUY", FontId::proportional(10.0), Color32::WHITE);
-            painter.text(sell_r.center_bottom() - vec2(0.0, 4.0), Align2::CENTER_BOTTOM, fmt_price(inp.bid, digits), FontId::proportional(13.0), Color32::WHITE);
-            painter.text(buy_r.center_bottom() - vec2(0.0, 4.0), Align2::CENTER_BOTTOM, fmt_price(inp.ask, digits), FontId::proportional(13.0), Color32::WHITE);
-            painter.text(lots_r.center(), Align2::CENTER_CENTER, format!("{:.2}", self.lots), FontId::proportional(12.0), Color32::BLACK);
+            painter.text(sell_r.center_bottom() - vec2(0.0, 3.0), Align2::CENTER_BOTTOM, fmt_price(inp.bid, digits), FontId::monospace(13.0), Color32::WHITE);
+            painter.text(buy_r.center_bottom() - vec2(0.0, 3.0), Align2::CENTER_BOTTOM, fmt_price(inp.ask, digits), FontId::monospace(13.0), Color32::WHITE);
+            painter.text(lots_r.center(), Align2::CENTER_CENTER, format!("{:.2}", self.lots), FontId::monospace(12.0), Color32::BLACK);
+
+            // lot stepper buttons
+            let up_rect = Rect::from_min_size(lots_r.right_top() + vec2(1.0, 0.0), vec2(11.0, 11.0));
+            let dn_rect = Rect::from_min_size(lots_r.right_top() + vec2(1.0, 12.0), vec2(11.0, 11.0));
+            painter.rect_filled(up_rect, 1.0, Color32::from_rgb(232, 232, 236));
+            painter.rect_stroke(up_rect, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(170, 170, 175)), egui::StrokeKind::Inside);
+            painter.text(up_rect.center(), Align2::CENTER_CENTER, "▲", FontId::proportional(7.0), Color32::BLACK);
+
+            painter.rect_filled(dn_rect, 1.0, Color32::from_rgb(232, 232, 236));
+            painter.rect_stroke(dn_rect, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(170, 170, 175)), egui::StrokeKind::Inside);
+            painter.text(dn_rect.center(), Align2::CENTER_CENTER, "▼", FontId::proportional(7.0), Color32::BLACK);
+
             if resp.clicked() {
                 if let Some(pp) = resp.interact_pointer_pos() {
                     if sell_r.contains(pp) {
                         out.actions.push(ChartAction::Sell(self.lots));
                     } else if buy_r.contains(pp) {
                         out.actions.push(ChartAction::Buy(self.lots));
+                    } else if up_rect.contains(pp) {
+                        self.lots = (((self.lots + 0.01) * 100.0).round() / 100.0).max(0.01);
+                    } else if dn_rect.contains(pp) {
+                        self.lots = (((self.lots - 0.01) * 100.0).round() / 100.0).max(0.01);
                     }
                 }
             }
@@ -1025,6 +1078,22 @@ pub fn nice_step(raw: f64) -> f64 {
         10.0
     };
     m * mag
+}
+
+fn dotted_h(p: &egui::Painter, x0: f32, x1: f32, y: f32, c: Color32) {
+    let mut x = x0;
+    while x < x1 {
+        p.line_segment([pos2(x, y), pos2((x + 1.0_f32).min(x1), y)], Stroke::new(1.0_f32, c));
+        x += 4.0;
+    }
+}
+
+fn dotted_v(p: &egui::Painter, x: f32, y0: f32, y1: f32, c: Color32) {
+    let mut y = y0;
+    while y < y1 {
+        p.line_segment([pos2(x, y), pos2(x, (y + 1.0_f32).min(y1))], Stroke::new(1.0_f32, c));
+        y += 4.0;
+    }
 }
 
 fn dashed_h(p: &egui::Painter, x0: f32, x1: f32, y: f32, c: Color32) {

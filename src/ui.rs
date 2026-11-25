@@ -316,8 +316,15 @@ fn attach_file(app: &mut TerminalApp, path: std::path::PathBuf) {
     app.open_attach_dialog(ai, path, AttachTarget::New);
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Icon {
+    NewChart,
+    MarketWatch,
+    Navigator,
+    Toolbox,
+    Tester,
+    NewOrder,
+    MetaEditor,
     Cursor,
     Cross,
     VLine,
@@ -331,26 +338,117 @@ enum Icon {
     Bars,
     Candles,
     Line,
+    ZoomIn,
+    ZoomOut,
+    TileWindows,
     AutoScroll,
     Shift,
+    Indicators,
 }
 
-/// A small toolbar button with a drawn icon (independent of the fonts' glyphs).
+fn toolbar_grip(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 22.0), egui::Sense::hover());
+    crate::style::draw_toolbar_grip(ui.painter(), rect);
+}
+
+/// A small toolbar button with an authentic MT5 Win32-style icon.
 fn icon_button(ui: &mut egui::Ui, icon: Icon, selected: bool, tip: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(24.0, 20.0), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(24.0, 22.0), egui::Sense::click());
     let resp = resp.on_hover_text(tip);
     let p = ui.painter();
     if selected || resp.hovered() {
-        let fill = if selected { Color32::from_rgb(200, 220, 245) } else { Color32::from_rgb(225, 230, 238) };
-        p.rect_filled(rect, 2.0, fill);
-        p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(150, 170, 200)), egui::StrokeKind::Inside);
+        let fill = if selected { Color32::from_rgb(195, 222, 250) } else { Color32::from_rgb(222, 236, 252) };
+        let stroke = if selected { Color32::from_rgb(100, 160, 235) } else { Color32::from_rgb(145, 195, 248) };
+        p.rect_filled(rect, 1.0, fill);
+        p.rect_stroke(rect, 1.0, egui::Stroke::new(1.0_f32, stroke), egui::StrokeKind::Inside);
     }
     let c = rect.center();
-    let s = egui::Stroke::new(1.4_f32, Color32::from_rgb(40, 50, 70));
-    let blue = egui::Stroke::new(1.4_f32, Color32::from_rgb(30, 110, 220));
+    let s = egui::Stroke::new(1.4_f32, Color32::from_rgb(45, 55, 75));
+    let blue = egui::Stroke::new(1.4_f32, Color32::from_rgb(25, 105, 215));
     use egui::pos2;
     let v = |dx: f32, dy: f32| pos2(c.x + dx, c.y + dy);
+
     match icon {
+        Icon::NewChart => {
+            // Document with folded corner and mini blue candlestick
+            p.rect_filled(egui::Rect::from_min_max(v(-6.0, -8.0), v(6.0, 8.0)), 1.0_f32, Color32::WHITE);
+            p.rect_stroke(egui::Rect::from_min_max(v(-6.0, -8.0), v(6.0, 8.0)), 1.0_f32, egui::Stroke::new(1.0_f32, Color32::from_rgb(100, 120, 150)), egui::StrokeKind::Inside);
+            // green plus badge
+            p.line_segment([v(1.0, 3.0), v(5.0, 3.0)], egui::Stroke::new(1.5_f32, Color32::from_rgb(30, 160, 50)));
+            p.line_segment([v(3.0, 1.0), v(3.0, 5.0)], egui::Stroke::new(1.5_f32, Color32::from_rgb(30, 160, 50)));
+            // mini candle
+            p.line_segment([v(-2.0, -5.0), v(-2.0, 4.0)], egui::Stroke::new(1.0_f32, Color32::from_rgb(0, 100, 200)));
+            p.rect_filled(egui::Rect::from_min_max(v(-3.5, -3.0), v(-0.5, 2.0)), 0.0, Color32::from_rgb(0, 120, 230));
+        }
+        Icon::MarketWatch => {
+            // Mini table grid with blue and red row indicator
+            p.rect_filled(egui::Rect::from_min_max(v(-7.0, -6.5), v(7.0, 6.5)), 1.0_f32, Color32::WHITE);
+            p.rect_stroke(egui::Rect::from_min_max(v(-7.0, -6.5), v(7.0, 6.5)), 1.0_f32, egui::Stroke::new(1.0_f32, Color32::from_rgb(120, 130, 150)), egui::StrokeKind::Inside);
+            p.line_segment([v(-7.0, -2.0), v(7.0, -2.0)], egui::Stroke::new(1.0_f32, Color32::from_rgb(200, 205, 215)));
+            p.line_segment([v(-7.0, 2.5), v(7.0, 2.5)], egui::Stroke::new(1.0_f32, Color32::from_rgb(200, 205, 215)));
+            p.line_segment([v(-1.0, -6.5), v(-1.0, 6.5)], egui::Stroke::new(1.0_f32, Color32::from_rgb(200, 205, 215)));
+            p.rect_filled(egui::Rect::from_min_max(v(-5.5, -5.0), v(-2.5, -3.0)), 0.0, Color32::from_rgb(0, 85, 215));
+            p.rect_filled(egui::Rect::from_min_max(v(-5.5, -0.5), v(-2.5, 1.5)), 0.0, Color32::from_rgb(215, 30, 30));
+        }
+        Icon::Navigator => {
+            // Gold compass / 4-point navigation star
+            p.add(egui::Shape::convex_polygon(vec![v(0.0, -8.0), v(2.5, -2.5), v(0.0, 0.0)], Color32::from_rgb(230, 160, 20), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(0.0, -8.0), v(-2.5, -2.5), v(0.0, 0.0)], Color32::from_rgb(190, 130, 15), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(8.0, 0.0), v(2.5, 2.5), v(0.0, 0.0)], Color32::from_rgb(230, 160, 20), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(8.0, 0.0), v(2.5, -2.5), v(0.0, 0.0)], Color32::from_rgb(190, 130, 15), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(0.0, 8.0), v(-2.5, 2.5), v(0.0, 0.0)], Color32::from_rgb(230, 160, 20), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(0.0, 8.0), v(2.5, 2.5), v(0.0, 0.0)], Color32::from_rgb(190, 130, 15), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(-8.0, 0.0), v(-2.5, -2.5), v(0.0, 0.0)], Color32::from_rgb(230, 160, 20), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(-8.0, 0.0), v(-2.5, 2.5), v(0.0, 0.0)], Color32::from_rgb(190, 130, 15), egui::Stroke::NONE));
+            p.circle_filled(c, 1.5_f32, Color32::WHITE);
+        }
+        Icon::Toolbox => {
+            // Metallic toolbox / wrench
+            p.line_segment([v(-5.0, 5.0), v(3.0, -3.0)], egui::Stroke::new(2.5_f32, Color32::from_rgb(120, 130, 145)));
+            p.circle_stroke(v(4.0, -4.0), 3.0_f32, egui::Stroke::new(2.0_f32, Color32::from_rgb(100, 110, 125)));
+            p.circle_filled(v(-5.5, 5.5), 2.0_f32, Color32::from_rgb(90, 100, 115));
+        }
+        Icon::Tester => {
+            // Strategy Tester flask / magnifying chart
+            p.add(egui::Shape::convex_polygon(vec![v(-2.0, -7.0), v(2.0, -7.0), v(2.0, -2.0), v(6.0, 6.0), v(-6.0, 6.0), v(-2.0, -2.0)], Color32::from_rgb(230, 240, 255), egui::Stroke::new(1.2_f32, Color32::from_rgb(60, 90, 140))));
+            p.add(egui::Shape::convex_polygon(vec![v(-4.5, 4.0), v(4.5, 4.0), v(5.5, 5.5), v(-5.5, 5.5)], Color32::from_rgb(0, 140, 230), egui::Stroke::NONE));
+        }
+        Icon::NewOrder => {
+            // Yellow order ticket with blue buy and red sell arrows
+            p.rect_filled(egui::Rect::from_min_max(v(-6.5, -7.0), v(6.5, 7.0)), 1.0_f32, Color32::from_rgb(255, 252, 230));
+            p.rect_stroke(egui::Rect::from_min_max(v(-6.5, -7.0), v(6.5, 7.0)), 1.0_f32, egui::Stroke::new(1.0_f32, Color32::from_rgb(180, 160, 100)), egui::StrokeKind::Inside);
+            // blue arrow up
+            p.add(egui::Shape::convex_polygon(vec![v(-2.0, -5.0), v(0.5, -1.5), v(-4.5, -1.5)], Color32::from_rgb(0, 100, 220), egui::Stroke::NONE));
+            // red arrow down
+            p.add(egui::Shape::convex_polygon(vec![v(2.0, 5.0), v(4.5, 1.5), v(-0.5, 1.5)], Color32::from_rgb(220, 30, 30), egui::Stroke::NONE));
+        }
+        Icon::MetaEditor => {
+            // Gold notepad with blue 'M'
+            p.rect_filled(egui::Rect::from_min_max(v(-6.0, -7.0), v(6.0, 7.0)), 1.0_f32, Color32::from_rgb(245, 240, 220));
+            p.rect_stroke(egui::Rect::from_min_max(v(-6.0, -7.0), v(6.0, 7.0)), 1.0_f32, egui::Stroke::new(1.0_f32, Color32::from_rgb(170, 150, 100)), egui::StrokeKind::Inside);
+            p.text(c, egui::Align2::CENTER_CENTER, "M", egui::FontId::proportional(12.0), Color32::from_rgb(0, 80, 200));
+        }
+        Icon::ZoomIn => {
+            p.circle_stroke(v(-1.5, -1.5), 5.0_f32, egui::Stroke::new(1.5_f32, Color32::from_rgb(50, 60, 80)));
+            p.line_segment([v(2.5, 2.5), v(6.5, 6.5)], egui::Stroke::new(2.2_f32, Color32::from_rgb(70, 80, 100)));
+            p.line_segment([v(-4.0, -1.5), v(1.0, -1.5)], egui::Stroke::new(1.2_f32, Color32::from_rgb(20, 120, 220)));
+            p.line_segment([v(-1.5, -4.0), v(-1.5, 1.0)], egui::Stroke::new(1.2_f32, Color32::from_rgb(20, 120, 220)));
+        }
+        Icon::ZoomOut => {
+            p.circle_stroke(v(-1.5, -1.5), 5.0_f32, egui::Stroke::new(1.5_f32, Color32::from_rgb(50, 60, 80)));
+            p.line_segment([v(2.5, 2.5), v(6.5, 6.5)], egui::Stroke::new(2.2_f32, Color32::from_rgb(70, 80, 100)));
+            p.line_segment([v(-4.0, -1.5), v(1.0, -1.5)], egui::Stroke::new(1.2_f32, Color32::from_rgb(210, 30, 30)));
+        }
+        Icon::TileWindows => {
+            for (dx, dy) in [(-6.0, -6.0), (1.0, -6.0), (-6.0, 1.0), (1.0, 1.0)] {
+                let r = egui::Rect::from_min_size(v(dx, dy), egui::vec2(5.0, 5.0));
+                p.rect_filled(r, 0.0, Color32::from_rgb(240, 245, 255));
+                p.rect_stroke(r, 0.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(60, 100, 180)), egui::StrokeKind::Inside);
+            }
+        }
+        Icon::Indicators => {
+            p.text(c, egui::Align2::CENTER_CENTER, "ƒ", egui::FontId::proportional(15.0), Color32::from_rgb(0, 90, 210));
+        }
         Icon::Cursor => {
             p.add(egui::Shape::convex_polygon(vec![v(-4.0, -7.0), v(-4.0, 5.0), v(-1.0, 2.0), v(4.0, 2.0)], Color32::WHITE, s));
         }
@@ -403,12 +501,12 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, selected: bool, tip: &str) -> egui
             p.add(egui::Shape::line(vec![v(-8.0, 5.0), v(-4.0, -1.0), v(0.0, 2.0), v(4.0, -5.0), v(8.0, -2.0)], blue));
         }
         Icon::AutoScroll => {
-            p.add(egui::Shape::convex_polygon(vec![v(-7.0, -5.0), v(-1.0, 0.0), v(-7.0, 5.0)], Color32::from_rgb(40, 50, 70), egui::Stroke::NONE));
-            p.add(egui::Shape::convex_polygon(vec![v(0.0, -5.0), v(6.0, 0.0), v(0.0, 5.0)], Color32::from_rgb(40, 50, 70), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(-7.0, -5.0), v(-1.0, 0.0), v(-7.0, 5.0)], Color32::from_rgb(40, 160, 60), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(0.0, -5.0), v(6.0, 0.0), v(0.0, 5.0)], Color32::from_rgb(40, 160, 60), egui::Stroke::NONE));
         }
         Icon::Shift => {
             p.line_segment([v(-7.0, 0.0), v(4.0, 0.0)], s);
-            p.add(egui::Shape::convex_polygon(vec![v(1.0, -4.0), v(5.0, 0.0), v(1.0, 4.0)], Color32::from_rgb(40, 50, 70), egui::Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![v(1.0, -4.0), v(5.0, 0.0), v(1.0, 4.0)], Color32::from_rgb(25, 110, 225), egui::Stroke::NONE));
             p.line_segment([v(7.0, -6.0), v(7.0, 6.0)], s);
         }
     }
@@ -451,29 +549,65 @@ fn tool_buttons(app: &mut TerminalApp, ui: &mut egui::Ui, menu: bool) {
 }
 
 fn toolbar(app: &mut TerminalApp, ctx: &egui::Context) {
-    egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 3.0;
+    egui::TopBottomPanel::top("toolbar").exact_height(28.0).show(ctx, |ui| {
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
             let ai = app.active;
-            if ui.button("📈 New Chart").clicked() {
+
+            // ===== 1. STANDARD TOOLBAR =====
+            toolbar_grip(ui);
+            if icon_button(ui, Icon::NewChart, false, "New Chart").clicked() {
                 let sym = app.charts.get(ai).map(|c| c.chart.symbol.clone()).unwrap_or_else(|| "EURUSD".into());
                 app.open_chart(&sym, Timeframe::H1);
             }
-            if ui.button("📝 MetaEditor").on_hover_text("F4").clicked() {
-                app.editor.open = !app.editor.open;
+            if icon_button(ui, Icon::MarketWatch, app.show_market_watch, "Market Watch (Ctrl+M)").clicked() {
+                app.show_market_watch = !app.show_market_watch;
             }
-            if ui.button("➕ New Order").on_hover_text("F9").clicked() {
+            if icon_button(ui, Icon::Navigator, app.show_navigator, "Navigator (Ctrl+N)").clicked() {
+                app.show_navigator = !app.show_navigator;
+            }
+            if icon_button(ui, Icon::Toolbox, app.show_toolbox, "Toolbox (Ctrl+T)").clicked() {
+                app.show_toolbox = !app.show_toolbox;
+            }
+            if icon_button(ui, Icon::Tester, app.show_tester, "Strategy Tester (Ctrl+R)").clicked() {
+                app.show_tester = !app.show_tester;
+            }
+            if icon_button(ui, Icon::NewOrder, false, "New Order (F9)").clicked() {
                 if let Some(s) = app.charts.get(ai).map(|c| c.chart.symbol.clone()) {
                     app.new_order_dialog(&s);
                 }
             }
-            let (txt, col) = if app.algo { ("▶ Algo Trading", Color32::from_rgb(30, 150, 50)) } else { ("Algo Trading", Color32::from_rgb(200, 40, 40)) };
-            if ui.add(egui::Button::new(RichText::new(txt).color(Color32::WHITE)).fill(col)).on_hover_text("Allow expert advisors to trade (Ctrl+E)").clicked() {
+            if icon_button(ui, Icon::MetaEditor, app.editor.open, "MetaEditor (F4)").clicked() {
+                app.editor.open = !app.editor.open;
+            }
+
+            // Algo Trading Button (styled like MT5)
+            let (algo_col, algo_bg, border_col) = if app.algo {
+                (Color32::WHITE, Color32::from_rgb(34, 139, 34), Color32::from_rgb(20, 100, 20))
+            } else {
+                (Color32::from_rgb(80, 80, 80), Color32::from_rgb(238, 238, 240), Color32::from_rgb(180, 180, 185))
+            };
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(98.0, 22.0), egui::Sense::click());
+            let resp = resp.on_hover_text("Allow automated trading (Ctrl+E)");
+            let p = ui.painter();
+            p.rect_filled(rect, 1.0, algo_bg);
+            p.rect_stroke(rect, 1.0, egui::Stroke::new(1.0_f32, border_col), egui::StrokeKind::Inside);
+            let play_c = rect.left_center() + egui::vec2(10.0, 0.0);
+            if app.algo {
+                p.add(egui::Shape::convex_polygon(vec![play_c + egui::vec2(-4.0, -5.0), play_c + egui::vec2(5.0, 0.0), play_c + egui::vec2(-4.0, 5.0)], Color32::WHITE, egui::Stroke::NONE));
+            } else {
+                p.circle_filled(play_c, 4.5, Color32::from_rgb(215, 30, 30));
+                p.rect_filled(egui::Rect::from_center_size(play_c, egui::vec2(4.0, 4.0)), 0.0, Color32::WHITE);
+            }
+            p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::LEFT_CENTER, "Algo Trading", egui::FontId::proportional(11.0), algo_col);
+            if resp.clicked() {
                 app.algo = !app.algo;
                 let msg = if app.algo { "automated trading is enabled" } else { "automated trading is disabled" };
                 app.log_journal("Experts", msg.into());
             }
-            ui.separator();
+
+            // ===== 2. CHARTS TOOLBAR =====
+            toolbar_grip(ui);
             if let Some(slot) = app.charts.get_mut(ai) {
                 let c = &mut slot.chart;
                 for (m, icon, tip) in [(ChartMode::Bars, Icon::Bars, "Bar Chart"), (ChartMode::Candles, Icon::Candles, "Candlesticks"), (ChartMode::Line, Icon::Line, "Line Chart")] {
@@ -481,10 +615,10 @@ fn toolbar(app: &mut TerminalApp, ctx: &egui::Context) {
                         c.mode = m;
                     }
                 }
-                if ui.button("🔍+").on_hover_text("Zoom In").clicked() {
+                if icon_button(ui, Icon::ZoomIn, false, "Zoom In (+)").clicked() {
                     c.zoom(1.25);
                 }
-                if ui.button("🔍-").on_hover_text("Zoom Out").clicked() {
+                if icon_button(ui, Icon::ZoomOut, false, "Zoom Out (-)").clicked() {
                     c.zoom(0.8);
                 }
                 if icon_button(ui, Icon::AutoScroll, c.autoscroll, "Auto Scroll").clicked() {
@@ -494,7 +628,7 @@ fn toolbar(app: &mut TerminalApp, ctx: &egui::Context) {
                     c.shift = !c.shift;
                 }
             }
-            ui.menu_button("ƒ Indicators", |ui| {
+            ui.menu_button("ƒ", |ui| {
                 for k in IndKind::ALL {
                     if ui.button(k.name()).clicked() {
                         open_ind(app, k, None);
@@ -502,38 +636,61 @@ fn toolbar(app: &mut TerminalApp, ctx: &egui::Context) {
                     }
                 }
             });
-            ui.separator();
+
+            // ===== 3. LINE STUDIES TOOLBAR =====
+            toolbar_grip(ui);
             tool_buttons(app, ui, false);
-            ui.separator();
+
+            // ===== 4. TIMEFRAMES TOOLBAR =====
+            toolbar_grip(ui);
             if let Some(cur_tf) = app.charts.get(ai).map(|c| c.chart.tf) {
                 for tf in Timeframe::ALL {
-                    if ui.selectable_label(cur_tf == tf, tf.label()).clicked() {
+                    let sel = cur_tf == tf;
+                    let (trect, tresp) = ui.allocate_exact_size(egui::vec2(24.0, 20.0), egui::Sense::click());
+                    let p = ui.painter();
+                    if sel || tresp.hovered() {
+                        let fill = if sel { Color32::from_rgb(195, 222, 250) } else { Color32::from_rgb(222, 236, 252) };
+                        let stroke = if sel { Color32::from_rgb(100, 160, 235) } else { Color32::from_rgb(145, 195, 248) };
+                        p.rect_filled(trect, 1.0, fill);
+                        p.rect_stroke(trect, 1.0, egui::Stroke::new(1.0_f32, stroke), egui::StrokeKind::Inside);
+                    }
+                    let txt_col = if sel { Color32::from_rgb(0, 60, 150) } else { Color32::from_rgb(40, 45, 55) };
+                    p.text(trect.center(), egui::Align2::CENTER_CENTER, tf.label(), egui::FontId::proportional(11.0), txt_col);
+                    if tresp.clicked() {
                         app.set_timeframe(ai, tf);
                     }
                 }
-            }
-            ui.separator();
-            if ui.selectable_label(app.show_tester, "Strategy Tester").clicked() {
-                app.show_tester = !app.show_tester;
             }
         });
     });
 }
 
 fn status_bar(app: &mut TerminalApp, ctx: &egui::Context) {
-    egui::TopBottomPanel::bottom("status").exact_height(20.0).show(ctx, |ui| {
+    egui::TopBottomPanel::bottom("status").exact_height(22.0).show(ctx, |ui| {
         ui.horizontal_centered(|ui| {
-            ui.label("For Help, press F1");
-            ui.separator();
-            ui.label("Default");
-            ui.separator();
-            if !app.status.is_empty() {
-                ui.label(RichText::new(&app.status).color(UP));
-                ui.separator();
-            }
-            if let Some((b, _)) = &app.hover {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let full_w = ui.available_width();
+
+            // Compartment 1: Help message
+            let (r1, _) = ui.allocate_exact_size(egui::vec2(130.0, 18.0), egui::Sense::hover());
+            crate::style::draw_sunken_box(ui.painter(), r1);
+            ui.painter().text(r1.left_center() + egui::vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, "For Help, press F1", egui::FontId::proportional(11.0), Color32::from_rgb(60, 60, 60));
+
+            // Compartment 2: Active profile
+            let (r2, _) = ui.allocate_exact_size(egui::vec2(65.0, 18.0), egui::Sense::hover());
+            crate::style::draw_sunken_box(ui.painter(), r2);
+            ui.painter().text(r2.center(), egui::Align2::CENTER_CENTER, "default", egui::FontId::proportional(11.0), Color32::from_rgb(50, 50, 50));
+
+            // Compartment 4: Server info + ping + signal bars + time (right side)
+            let right_w = 260.0;
+            // Compartment 3: Center dynamic info (takes remaining width)
+            let center_w = (full_w - 130.0 - 65.0 - right_w - 24.0).max(80.0);
+            let (r3, _) = ui.allocate_exact_size(egui::vec2(center_w, 18.0), egui::Sense::hover());
+            crate::style::draw_sunken_box(ui.painter(), r3);
+
+            let center_text = if let Some((b, _)) = &app.hover {
                 let digits = app.charts.get(app.active).and_then(|c| app.market.symbol_index(&c.chart.symbol)).map(|i| app.market.symbols[i].spec.digits).unwrap_or(5);
-                ui.label(RichText::new(format!(
+                format!(
                     "{}   O: {}   H: {}   L: {}   C: {}   V: {}",
                     fmt_time(b.time, false),
                     fmt_price(b.open, digits),
@@ -541,31 +698,38 @@ fn status_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                     fmt_price(b.low, digits),
                     fmt_price(b.close, digits),
                     b.tick_volume
-                ))
-                .monospace());
+                )
+            } else if !app.status.is_empty() {
+                app.status.clone()
+            } else {
+                String::new()
+            };
+            if !center_text.is_empty() {
+                ui.painter().text(r3.left_center() + egui::vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, center_text, egui::FontId::monospace(10.5), Color32::from_rgb(20, 70, 150));
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if app.connected {
-                    ui.label(RichText::new(format!("{} / {:.1} ms", app.account().server, app.ping_ms as f32)).color(Color32::from_rgb(20, 130, 40)));
-                    let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 14.0), egui::Sense::hover());
-                    for k in 0..4 {
-                        let h = 4.0 + k as f32 * 3.0;
-                        let x = rect.left() + k as f32 * 4.5;
-                        ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(x, rect.bottom() - h), egui::pos2(x + 3.0, rect.bottom())), 0.0, Color32::from_rgb(20, 150, 40));
-                    }
-                } else {
-                    ui.label(RichText::new("No connection").color(DOWN));
+
+            let (r4, _) = ui.allocate_exact_size(egui::vec2(right_w, 18.0), egui::Sense::hover());
+            crate::style::draw_sunken_box(ui.painter(), r4);
+            let p4 = ui.painter();
+            let conn_x = r4.left() + 6.0;
+            if app.connected {
+                for k in 0..4 {
+                    let h = 4.0_f32 + k as f32 * 2.8_f32;
+                    let x = conn_x + k as f32 * 4.0_f32;
+                    p4.rect_filled(egui::Rect::from_min_max(egui::pos2(x, r4.bottom() - 3.0_f32 - h), egui::pos2(x + 2.5_f32, r4.bottom() - 3.0_f32)), 0.0, Color32::from_rgb(34, 139, 34));
                 }
-                ui.separator();
-                ui.label(fmt_time(app.market.now, true));
-            });
+                let stat_txt = format!("{} / {:.0} ms   {}", app.account().server, app.ping_ms as f32, fmt_time(app.market.now, true));
+                p4.text(r4.left_center() + egui::vec2(28.0, 0.0), egui::Align2::LEFT_CENTER, stat_txt, egui::FontId::monospace(10.5), Color32::from_rgb(40, 50, 60));
+            } else {
+                p4.text(r4.left_center() + egui::vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, "No connection", egui::FontId::proportional(11.0), DOWN);
+            }
         });
     });
 }
 
 fn left_panel(app: &mut TerminalApp, ui: &mut egui::Ui) {
     if app.show_market_watch {
-        let h = if app.show_navigator { ui.available_height() * 0.48 } else { ui.available_height() };
+        let h = if app.show_navigator { ui.available_height() * 0.52 } else { ui.available_height() };
         ui.allocate_ui(egui::vec2(ui.available_width(), h), |ui| {
             ui.vertical(|ui| {
                 header(ui, &format!("Market Watch: {}", fmt_time(app.market.now, true)[11..].to_string()));
@@ -594,53 +758,136 @@ fn header(ui: &mut egui::Ui, text: &str) {
 }
 
 fn market_watch(app: &mut TerminalApp, ui: &mut egui::Ui) {
+    use crate::app::MarketWatchTab;
     let mut open: Option<String> = None;
     let mut order: Option<String> = None;
-    egui::ScrollArea::vertical().id_salt("mw").auto_shrink([false, true]).show(ui, |ui| {
-        egui::Grid::new("mw_grid").striped(true).num_columns(5).min_col_width(40.0).spacing([8.0, 2.0]).show(ui, |ui| {
-            for h in ["Symbol", "Bid", "Ask", "Spread", "Daily Change"] {
-                ui.label(RichText::new(h).strong().size(11.5));
-            }
-            ui.end_row();
-            for s in &app.market.symbols {
-                let up = s.bid >= s.prev_bid;
-                let col = if up { UP } else { DOWN };
-                let r = ui
-                    .horizontal(|ui| {
-                        let (rect, _) = ui.allocate_exact_size(egui::vec2(9.0, 12.0), egui::Sense::hover());
-                        let c = rect.center();
-                        let pts = if up {
-                            vec![egui::pos2(c.x, c.y - 4.0), egui::pos2(c.x - 4.0, c.y + 3.0), egui::pos2(c.x + 4.0, c.y + 3.0)]
-                        } else {
-                            vec![egui::pos2(c.x, c.y + 4.0), egui::pos2(c.x + 4.0, c.y - 3.0), egui::pos2(c.x - 4.0, c.y - 3.0)]
-                        };
-                        ui.painter().add(egui::Shape::convex_polygon(pts, col, egui::Stroke::NONE));
-                        ui.add(egui::Label::new(RichText::new(s.spec.name).color(col)).sense(egui::Sense::click()))
-                    })
-                    .inner;
-                if r.double_clicked() {
-                    open = Some(s.spec.name.to_string());
-                }
-                let name = s.spec.name.to_string();
-                r.on_hover_text(format!("{}\nDigits: {}  Contract: {}", s.spec.description, s.spec.digits, s.spec.contract_size)).context_menu(|ui| {
-                    if ui.button("New Order   F9").clicked() {
-                        order = Some(name.clone());
-                        ui.close_menu();
-                    }
-                    if ui.button("Chart Window").clicked() {
-                        open = Some(name.clone());
-                        ui.close_menu();
-                    }
+
+    // Content area
+    ui.allocate_ui(egui::vec2(ui.available_width(), ui.available_height() - 24.0), |ui| {
+        match app.mw_tab {
+            MarketWatchTab::Symbols => {
+                egui::ScrollArea::vertical().id_salt("mw").auto_shrink([false, false]).show(ui, |ui| {
+                    egui::Grid::new("mw_grid").striped(true).num_columns(5).min_col_width(38.0).spacing([6.0, 2.0]).show(ui, |ui| {
+                        for h in ["Symbol", "Bid", "Ask", "!", "Change"] {
+                            ui.label(RichText::new(h).strong().size(11.0));
+                        }
+                        ui.end_row();
+                        for s in &app.market.symbols {
+                            let up = s.bid >= s.prev_bid;
+                            let col = if up { UP } else { DOWN };
+                            let r = ui
+                                .horizontal(|ui| {
+                                    let (rect, _) = ui.allocate_exact_size(egui::vec2(9.0, 12.0), egui::Sense::hover());
+                                    let c = rect.center();
+                                    let pts = if up {
+                                        vec![egui::pos2(c.x, c.y - 4.0), egui::pos2(c.x - 3.5, c.y + 3.0), egui::pos2(c.x + 3.5, c.y + 3.0)]
+                                    } else {
+                                        vec![egui::pos2(c.x, c.y + 4.0), egui::pos2(c.x + 3.5, c.y - 3.0), egui::pos2(c.x - 3.5, c.y - 3.0)]
+                                    };
+                                    ui.painter().add(egui::Shape::convex_polygon(pts, col, egui::Stroke::NONE));
+                                    ui.add(egui::Label::new(RichText::new(s.spec.name).color(col)).sense(egui::Sense::click()))
+                                })
+                                .inner;
+                            if r.double_clicked() {
+                                open = Some(s.spec.name.to_string());
+                            }
+                            let name = s.spec.name.to_string();
+                            r.on_hover_text(format!("{}\nDigits: {}  Contract: {}", s.spec.description, s.spec.digits, s.spec.contract_size)).context_menu(|ui| {
+                                if ui.button("New Order   F9").clicked() {
+                                    order = Some(name.clone());
+                                    ui.close_menu();
+                                }
+                                if ui.button("Chart Window").clicked() {
+                                    open = Some(name.clone());
+                                    ui.close_menu();
+                                }
+                            });
+                            ui.label(RichText::new(fmt_price(s.bid, s.spec.digits)).monospace().color(col));
+                            ui.label(RichText::new(fmt_price(s.ask, s.spec.digits)).monospace().color(col));
+                            ui.label(RichText::new(s.spread_points().to_string()).monospace());
+                            let ch = (s.bid - s.day_open) / s.day_open * 100.0;
+                            ui.label(RichText::new(format!("{:+.2}%", ch)).monospace().color(if ch >= 0.0 { UP } else { DOWN }));
+                            ui.end_row();
+                        }
+                    });
+                    ui.add_space(3.0);
+                    ui.label(RichText::new("+ click to add...").weak().size(11.0));
                 });
-                ui.label(RichText::new(fmt_price(s.bid, s.spec.digits)).monospace().color(col));
-                ui.label(RichText::new(fmt_price(s.ask, s.spec.digits)).monospace().color(col));
-                ui.label(RichText::new(s.spread_points().to_string()).monospace());
-                let ch = (s.bid - s.day_open) / s.day_open * 100.0;
-                ui.label(RichText::new(format!("{:+.2}%", ch)).monospace().color(if ch >= 0.0 { UP } else { DOWN }));
-                ui.end_row();
             }
-        });
+            MarketWatchTab::Details => {
+                let sym_name = app.charts.get(app.active).map(|c| c.chart.symbol.clone()).unwrap_or_else(|| "EURUSD".into());
+                let si = app.market.symbol_index(&sym_name).unwrap_or(0);
+                let s = &app.market.symbols[si];
+                egui::Grid::new("mw_details").striped(true).num_columns(2).spacing([12.0, 3.0]).show(ui, |ui| {
+                    ui.label("Symbol");
+                    ui.label(RichText::new(s.spec.name).strong());
+                    ui.end_row();
+                    ui.label("Description");
+                    ui.label(s.spec.description);
+                    ui.end_row();
+                    ui.label("Bid");
+                    ui.label(RichText::new(fmt_price(s.bid, s.spec.digits)).monospace().color(UP));
+                    ui.end_row();
+                    ui.label("Ask");
+                    ui.label(RichText::new(fmt_price(s.ask, s.spec.digits)).monospace().color(DOWN));
+                    ui.end_row();
+                    ui.label("Spread");
+                    ui.label(format!("{} pts", s.spread_points()));
+                    ui.end_row();
+                    ui.label("High");
+                    ui.label(RichText::new(fmt_price(s.day_high, s.spec.digits)).monospace());
+                    ui.end_row();
+                    ui.label("Low");
+                    ui.label(RichText::new(fmt_price(s.day_low, s.spec.digits)).monospace());
+                    ui.end_row();
+                    ui.label("Daily Open");
+                    ui.label(RichText::new(fmt_price(s.day_open, s.spec.digits)).monospace());
+                    ui.end_row();
+                    let ch = (s.bid - s.day_open) / s.day_open * 100.0;
+                    ui.label("Daily Change");
+                    ui.label(RichText::new(format!("{:+.2}%", ch)).color(if ch >= 0.0 { UP } else { DOWN }));
+                    ui.end_row();
+                });
+            }
+            MarketWatchTab::Ticks => {
+                let sym_name = app.charts.get(app.active).map(|c| c.chart.symbol.clone()).unwrap_or_else(|| "EURUSD".into());
+                let si = app.market.symbol_index(&sym_name).unwrap_or(0);
+                let s = &app.market.symbols[si];
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{}: Tick Chart", s.spec.name)).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(fmt_price(s.ask, s.spec.digits)).color(DOWN));
+                        ui.label(RichText::new(fmt_price(s.bid, s.spec.digits)).color(UP));
+                    });
+                });
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), (ui.available_height() - 10.0).max(60.0)), egui::Sense::hover());
+                let p = ui.painter();
+                p.rect_filled(rect, 0.0, Color32::from_rgb(20, 20, 25));
+                p.rect_stroke(rect, 0.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(60, 60, 70)), egui::StrokeKind::Inside);
+                let mid_y = rect.center().y;
+                p.line_segment([egui::pos2(rect.left(), mid_y + 6.0), egui::pos2(rect.right(), mid_y + 6.0)], egui::Stroke::new(1.2_f32, Color32::from_rgb(30, 110, 220)));
+                p.line_segment([egui::pos2(rect.left(), mid_y - 6.0), egui::pos2(rect.right(), mid_y - 6.0)], egui::Stroke::new(1.2_f32, Color32::from_rgb(220, 30, 30)));
+            }
+        }
     });
+
+    // Bottom tabs of Market Watch
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        for (tab, label) in [(MarketWatchTab::Symbols, "Symbols"), (MarketWatchTab::Details, "Details"), (MarketWatchTab::Ticks, "Ticks")] {
+            let sel = app.mw_tab == tab;
+            let (r, resp) = ui.allocate_exact_size(egui::vec2(52.0, 18.0), egui::Sense::click());
+            let fill = if sel { Color32::WHITE } else { Color32::from_rgb(230, 230, 235) };
+            ui.painter().rect_filled(r, 0.0, fill);
+            ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(175, 175, 180)), egui::StrokeKind::Inside);
+            let col = if sel { Color32::from_rgb(0, 70, 180) } else { Color32::from_rgb(60, 60, 60) };
+            ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(10.5), col);
+            if resp.clicked() {
+                app.mw_tab = tab;
+            }
+        }
+    });
+
     if let Some(s) = open {
         app.open_chart(&s, Timeframe::H1);
     }
@@ -682,8 +929,8 @@ fn navigator(app: &mut TerminalApp, ui: &mut egui::Ui) {
                 program_list(ui, &indicators, "ƒ", &mut attach, &mut edit);
             });
         });
-        egui::CollapsingHeader::new("☺ Expert Advisors").default_open(true).show(ui, |ui| {
-            program_list(ui, &experts, "☺", &mut attach, &mut edit);
+        egui::CollapsingHeader::new("🤖 Expert Advisors").default_open(true).show(ui, |ui| {
+            program_list(ui, &experts, "🤖", &mut attach, &mut edit);
         });
         egui::CollapsingHeader::new("📜 Scripts").default_open(true).show(ui, |ui| {
             program_list(ui, &scripts, "▶", &mut attach, &mut edit);
@@ -763,10 +1010,36 @@ fn data_window(app: &mut TerminalApp, ui: &mut egui::Ui) {
 
 fn toolbox(app: &mut TerminalApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let tabs = [
+            (ToolboxTab::Trade, "Trade"),
+            (ToolboxTab::Exposure, "Exposure"),
+            (ToolboxTab::History, "History"),
+            (ToolboxTab::News, "News"),
+            (ToolboxTab::Mailbox, "Mailbox"),
+            (ToolboxTab::Calendar, "Calendar"),
+            (ToolboxTab::Alerts, "Alerts"),
+            (ToolboxTab::Articles, "Articles"),
+            (ToolboxTab::CodeBase, "Code Base"),
+            (ToolboxTab::Experts, "Experts"),
+            (ToolboxTab::Journal, "Journal"),
+        ];
         let errs = app.journal.iter().rev().take(50).any(|l| l.error);
-        for (t, name) in [(ToolboxTab::Trade, "Trade"), (ToolboxTab::History, "History"), (ToolboxTab::Journal, "Journal"), (ToolboxTab::Experts, "Experts")] {
+        for (t, name) in tabs {
             let label = if t == ToolboxTab::Journal && errs { format!("{} ●", name) } else { name.to_string() };
-            ui.selectable_value(&mut app.toolbox_tab, t, label);
+            let sel = app.toolbox_tab == t;
+            let (r, resp) = ui.allocate_exact_size(egui::vec2(58.0, 19.0), egui::Sense::click());
+            let fill = if sel { Color32::WHITE } else { Color32::from_rgb(234, 234, 238) };
+            ui.painter().rect_filled(r, 0.0, fill);
+            ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(175, 175, 180)), egui::StrokeKind::Inside);
+            if sel {
+                ui.painter().line_segment([r.left_top(), r.right_top()], egui::Stroke::new(2.0_f32, Color32::from_rgb(0, 90, 210)));
+            }
+            let col = if sel { Color32::from_rgb(0, 70, 180) } else { Color32::from_rgb(50, 50, 50) };
+            ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(11.0), col);
+            if resp.clicked() {
+                app.toolbox_tab = t;
+            }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button("✖").on_hover_text("Hide Toolbox (Ctrl+T)").clicked() {
@@ -777,7 +1050,17 @@ fn toolbox(app: &mut TerminalApp, ui: &mut egui::Ui) {
     ui.separator();
     match app.toolbox_tab {
         ToolboxTab::Trade => trade_tab(app, ui),
+        ToolboxTab::Exposure => exposure_tab(app, ui),
         ToolboxTab::History => history_tab(app, ui),
+        ToolboxTab::News => info_list(ui, "news", &["Time", "Source", "Headline"]),
+        ToolboxTab::Mailbox => info_list(ui, "mailbox", &["Time", "From", "Subject"]),
+        ToolboxTab::Calendar => info_list(ui, "calendar", &["Time", "Currency", "Event", "Impact", "Forecast", "Previous"]),
+        ToolboxTab::Alerts => info_list(ui, "alerts", &["Symbol", "Condition", "Value", "Action", "Expiration"]),
+        ToolboxTab::Articles | ToolboxTab::CodeBase => {
+            ui.centered_and_justified(|ui| {
+                ui.label(RichText::new("MQL5 Community articles and code base available online").weak());
+            });
+        }
         ToolboxTab::Journal => {
             let lines = app.journal.clone();
             log_list(ui, &lines, "journal");
@@ -787,6 +1070,52 @@ fn toolbox(app: &mut TerminalApp, ui: &mut egui::Ui) {
             log_list(ui, &lines, "experts");
         }
     }
+}
+
+fn exposure_tab(app: &mut TerminalApp, ui: &mut egui::Ui) {
+    let acc = app.account();
+    egui::ScrollArea::both().id_salt("exposure").auto_shrink([false, false]).show(ui, |ui| {
+        egui::Grid::new("exp_grid").striped(true).num_columns(5).spacing([16.0, 3.0]).show(ui, |ui| {
+            for h in ["Currency", "Assets", "Liabilities", "Net", "Equity Graph"] {
+                ui.label(RichText::new(h).strong());
+            }
+            ui.end_row();
+            ui.label(&acc.currency);
+            ui.label(format!("{:.2}", acc.balance));
+            ui.label("0.00");
+            ui.label(RichText::new(format!("{:.2}", acc.balance)).color(UP));
+            ui.label("■■■■■■■■■■");
+            ui.end_row();
+            for p in &acc.positions {
+                if p.symbol.len() >= 6 {
+                    let base = &p.symbol[..3];
+                    ui.label(base);
+                    ui.label(if p.buy { format!("{:.2}", p.volume * 100_000.0) } else { "0.00".into() });
+                    ui.label(if !p.buy { format!("{:.2}", p.volume * 100_000.0) } else { "0.00".into() });
+                    let net = if p.buy { p.volume * 100_000.0 } else { -p.volume * 100_000.0 };
+                    ui.label(RichText::new(format!("{:.2}", net)).color(if net >= 0.0 { UP } else { DOWN }));
+                    ui.label("■■■■");
+                    ui.end_row();
+                }
+            }
+        });
+    });
+}
+
+fn info_list(ui: &mut egui::Ui, id: &str, headers: &[&str]) {
+    egui::ScrollArea::vertical().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
+        egui::Grid::new(format!("{}_grid", id)).striped(true).num_columns(headers.len()).spacing([16.0, 3.0]).show(ui, |ui| {
+            for h in headers {
+                ui.label(RichText::new(*h).strong());
+            }
+            ui.end_row();
+            ui.label(RichText::new("(no items)").weak());
+            for _ in 1..headers.len() {
+                ui.label("");
+            }
+            ui.end_row();
+        });
+    });
 }
 
 fn trade_tab(app: &mut TerminalApp, ui: &mut egui::Ui) {
@@ -843,26 +1172,31 @@ fn trade_tab(app: &mut TerminalApp, ui: &mut egui::Ui) {
                 ui.end_row();
             }
         });
-        // account line
+        // MT5 authentic account status summary bar
         let m = |v: f64| format!("{:.2}", if v.abs() < 0.005 { 0.0 } else { v });
         let eq = acc.equity();
-        let level = if margin > 0.0 { format!("   Margin Level: {:.2} %", eq / margin * 100.0) } else { String::new() };
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(format!(
-                    "Balance: {} {}   Equity: {}   Margin: {}   Free Margin: {}{}",
-                    m(acc.balance),
-                    acc.currency,
-                    m(eq),
-                    m(margin),
-                    m(eq - margin),
-                    level
-                ))
-                .strong(),
-            );
-            ui.add_space(30.0);
-            let fl = acc.floating();
-            ui.label(RichText::new(format!("Floating P/L: {}", m(fl))).strong().color(if fl >= 0.0 { UP } else { DOWN }));
+        let level = if margin > 0.0 { format!("   Margin Level: {:.2}%", eq / margin * 100.0) } else { String::new() };
+        ui.add_space(4.0);
+        egui::Frame::NONE.fill(Color32::from_rgb(238, 240, 244)).stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(205, 210, 220))).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "Balance: {} {}   Equity: {}   Margin: {}   Free Margin: {}{}",
+                        m(acc.balance),
+                        acc.currency,
+                        m(eq),
+                        m(margin),
+                        m(eq - margin),
+                        level
+                    ))
+                    .strong()
+                    .size(11.5),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let fl = acc.floating();
+                    ui.label(RichText::new(format!("Profit: {}", m(fl))).strong().size(11.5).color(if fl >= 0.0 { UP } else { DOWN }));
+                });
+            });
         });
         if acc.positions.is_empty() && acc.orders.is_empty() {
             ui.label(RichText::new("No open positions. Use New Order (F9), the BUY/SELL panel on the chart, or let an expert advisor trade.").weak());

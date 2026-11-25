@@ -35,12 +35,27 @@ pub struct ChartSlot {
     pub expert: Option<ExpertRun>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum MarketWatchTab {
+    #[default]
+    Symbols,
+    Details,
+    Ticks,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ToolboxTab {
     Trade,
+    Exposure,
     History,
-    Journal,
+    News,
+    Mailbox,
+    Calendar,
+    Alerts,
+    Articles,
+    CodeBase,
     Experts,
+    Journal,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -103,6 +118,7 @@ pub struct TerminalApp {
     pub show_navigator: bool,
     pub show_toolbox: bool,
     pub show_tester: bool,
+    pub mw_tab: MarketWatchTab,
     pub toolbox_tab: ToolboxTab,
     pub left_tab: LeftTab,
     pub hover: Option<(crate::market::Bar, Vec<(String, String)>)>,
@@ -152,6 +168,7 @@ impl TerminalApp {
             show_navigator: true,
             show_toolbox: true,
             show_tester: false,
+            mw_tab: MarketWatchTab::Symbols,
             toolbox_tab: ToolboxTab::Trade,
             left_tab: LeftTab::Navigator,
             hover: None,
