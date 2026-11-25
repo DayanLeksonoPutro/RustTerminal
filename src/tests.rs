@@ -14,7 +14,7 @@ fn no_loader(_: &str) -> Option<String> {
 
 fn run_ea(name: &str, src: &str) -> TestRun {
     let prog = Rc::new(compile(name, src, &no_loader).unwrap_or_else(|e| panic!("{}: {:?}", name, e)));
-    let mut m = Market::new();
+    let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     let mut run = TestRun::new(prog, spec, Timeframe::H1, bars, TickMode::OhlcPoints, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
@@ -59,7 +59,7 @@ fn rsi_ea_runs() {
 fn indicators_fill_buffers() {
     for (name, src) in SAMPLES.iter().filter(|(n, _)| n.starts_with("Indicators/")).chain([("t1.mq5", TEMPLATE_INDICATOR)].iter()) {
         let prog = Rc::new(compile(name, src, &no_loader).unwrap());
-        let mut m = Market::new();
+        let mut m = Market::new_simulated();
         let bars = m.bars(0, Timeframe::H1).to_vec();
         let spec = m.symbols[0].spec.clone();
         let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
@@ -98,7 +98,7 @@ void OnStart() {
 }
 "#;
     let prog = Rc::new(compile("lang.mq5", src, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
-    let mut m = Market::new();
+    let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
@@ -113,7 +113,7 @@ void OnStart() {
 fn runtime_errors() {
     let src = "void OnStart(){ int z = 0; int a[3]; int x = 5 / z; }";
     let prog = Rc::new(compile("err.mq5", src, &no_loader).unwrap());
-    let mut m = Market::new();
+    let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
@@ -126,7 +126,7 @@ fn runtime_errors() {
 /// Compile and run a script's OnStart, returning what it printed.
 fn run_script(src: &str) -> Vec<String> {
     let prog = Rc::new(compile("script.mq5", src, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
-    let mut m = Market::new();
+    let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
@@ -287,7 +287,7 @@ fn corpus() {
     let ind_root = root.join("Indicators");
     let (mut ok_c, mut ok_r) = (0, 0);
     let mut errs: HashMap<String, Vec<String>> = HashMap::new();
-    let mut m = Market::new();
+    let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     for f in &files {
@@ -396,7 +396,7 @@ fn reference_indicators() {
     let script_buffers = |k: IndKind, p: &IndParams, b: &[crate::market::Bar]| crate::mt5ind::builtin(k, p, b);
     let ext = |k: ExtKind, p: &ExtParams, b: &[crate::market::Bar]| crate::mt5ind::ext(k, p, b, 0.00001).unwrap_or_else(|| crate::indicators_ext::compute(k, p, b));
     let root = std::path::PathBuf::from(std::env::var("CORPUS").expect("set CORPUS"));
-    let mut m = Market::new();
+    let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     let d = |k: IndKind| IndParams::defaults(k);
@@ -504,4 +504,75 @@ fn reference_indicators() {
         println!("{} {}", if all_ok { "OK  " } else { "DIFF" }, line);
     }
     println!("exact: {}", exact);
+}
+
+#[test]
+fn history_csv_formats() {
+    use crate::history::{aggregate, bar_open_time, detect_timeframe, name_hints, parse_csv};
+    // MetaTrader 5 export
+    let mt5 = "<DATE>\t<TIME>\t<OPEN>\t<HIGH>\t<LOW>\t<CLOSE>\t<TICKVOL>\t<VOL>\t<SPREAD>\n2024.01.02\t00:00:00\t1.10380\t1.10410\t1.10370\t1.10400\t120\t0\t5\n2024.01.02\t00:01:00\t1.10400\t1.10450\t1.10390\t1.10440\t98\t0\t6\n2024.01.02\t00:02:00\t1.10440\t1.10460\t1.10420\t1.10430\t77\t0\t5\n";
+    let b = parse_csv(mt5).unwrap();
+    assert_eq!(b.len(), 3);
+    assert_eq!(b[0].time, 1704153600);
+    assert_eq!((b[1].open, b[1].high, b[1].tick_volume, b[1].spread), (1.104, 1.1045, 98, 6));
+    assert_eq!(detect_timeframe(&b), Some(Timeframe::M1));
+    // MetaTrader 4 / generic without header
+    let mt4 = "2024.01.02,10:00,2063.10,2065.00,2062.00,2064.50,1500\n2024.01.02,11:00,2064.50,2066.00,2060.00,2061.20,1300\n2024.01.02,12:00,2061.20,2062.00,2058.00,2059.00,900\n";
+    let b = parse_csv(mt4).unwrap();
+    assert_eq!(b.len(), 3);
+    assert_eq!(b[0].time, 1704153600 + 36000);
+    assert_eq!(detect_timeframe(&b), Some(Timeframe::H1));
+    // header with one date-time column, unix milliseconds
+    let ms = "timestamp,open,high,low,close,volume\n1704153600000,1,2,0.5,1.5,10\n1704153900000,1.5,2,1,1.2,11\n1704154200000,1.2,1.3,1,1.1,9\n";
+    let b = parse_csv(ms).unwrap();
+    assert_eq!(b[1].time, 1704153900);
+    assert_eq!(detect_timeframe(&b), Some(Timeframe::M5));
+    // Dukascopy-style day-first dates with milliseconds
+    let dk = "Gmt time;Open;High;Low;Close;Volume\n02.01.2024 00:00:00.000;1.1;1.2;1.0;1.15;5\n";
+    assert_eq!(parse_csv(dk).unwrap()[0].time, 1704153600);
+    // file names
+    let (s, t) = name_hints(std::path::Path::new("/x/EURUSD_M1_202401020000_202411221759.csv"));
+    assert_eq!((s.as_deref(), t), (Some("EURUSD"), Some(Timeframe::M1)));
+    // weeks start on Sunday, months on the 1st
+    assert_eq!(bar_open_time(Timeframe::W1, 1704153600), 1703980800); // Tue 2024-01-02 -> Sun 2023-12-31
+    assert_eq!(bar_open_time(Timeframe::MN1, 1706745599), 1704067200); // 2024-01-31 23:59:59 -> 2024-01-01
+    let h1 = parse_csv(mt4).unwrap();
+    let d1 = aggregate(&h1, Timeframe::D1);
+    assert_eq!(d1.len(), 1);
+    assert_eq!((d1[0].open, d1[0].high, d1[0].low, d1[0].close, d1[0].tick_volume), (2063.10, 2066.0, 2058.0, 2059.0, 3700));
+}
+
+/// The export script for MetaTrader 5 compiles and runs here too, and what it writes
+/// imports back as the same bars and symbol properties.
+#[test]
+fn export_script_round_trip() {
+    let dir = std::env::temp_dir().join(format!("rt_export_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::env::set_var("RUST_TERMINAL_DATA", &dir);
+    let prog = Rc::new(compile("RustTerminal_Export.mq5", crate::history::EXPORT_SCRIPT, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
+    let mut m = Market::new_simulated();
+    let bars = m.bars(0, Timeframe::H1).to_vec();
+    let spec = m.symbols[0].spec.clone();
+    let mut inputs = HashMap::new();
+    inputs.insert("InpTimeframe".to_string(), "PERIOD_H1".to_string());
+    inputs.insert("InpDays".to_string(), "30".to_string());
+    let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &inputs, Box::new(|n| Err(format!("no {}", n))));
+    run.host.view = bars.clone();
+    run.inst.call_event("OnStart", vec![], &mut run.host).unwrap_or_else(|e| panic!("{}", run.inst.fmt_err(&e)));
+    let out = dir.join("Common/Files/RustTerminal");
+    let csv = out.join("EURUSD_H1.csv");
+    assert!(csv.exists(), "log: {:?}", run.host.log);
+    let imported = crate::history::import_file(&csv, None, None).unwrap();
+    assert_eq!((imported.symbol.as_str(), imported.tf), ("EURUSD", Timeframe::H1));
+    let back = crate::history::load("EURUSD", Timeframe::H1).unwrap();
+    // every exported bar equals the original bar with the same time
+    assert!(back.len() > 50);
+    for got in &back {
+        let orig = bars.iter().find(|b| b.time == got.time).expect("exported bar exists");
+        assert_eq!((got.open, got.high, got.low, got.close, got.tick_volume), (orig.open, orig.high, orig.low, orig.close, orig.tick_volume));
+    }
+    let syms = crate::history::parse_symbols_csv(&std::fs::read_to_string(out.join("symbols.csv")).unwrap());
+    assert_eq!(syms.first().map(|s| (s.name.as_str(), s.digits)), Some(("EURUSD", 5)));
+    std::env::remove_var("RUST_TERMINAL_DATA");
+    let _ = std::fs::remove_dir_all(&dir);
 }

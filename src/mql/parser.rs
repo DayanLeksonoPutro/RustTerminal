@@ -47,6 +47,8 @@ struct Parser {
     generics: HashSet<String>,
     template_classes: HashSet<String>,
     aliases: HashMap<String, Ty>,
+    last_enum: Option<String>,
+    var_enums: HashMap<Sym, String>,
     cur_func: String,
     next_id: u32,
     props: Properties,
@@ -98,6 +100,8 @@ impl Parser {
             generics: HashSet::new(),
             template_classes: HashSet::new(),
             aliases: HashMap::new(),
+            last_enum: None,
+            var_enums: HashMap::new(),
             cur_func: String::new(),
             next_id: 1,
             props: Properties::default(),
@@ -138,6 +142,7 @@ impl Parser {
             enums: self.enums,
             structs: self.structs,
             classes: self.classes,
+            var_enums: self.var_enums,
             interner: self.interner,
             warnings: self.warnings,
             files: self.files,
@@ -602,6 +607,15 @@ impl Parser {
 
     /// Parse a type, returning (type, enum name if any).
     fn parse_type(&mut self) -> Result<(Ty, Option<String>), CompileError> {
+        let r = self.parse_type_inner();
+        self.last_enum = match &r {
+            Ok((_, e)) => e.clone(),
+            Err(_) => None,
+        };
+        r
+    }
+
+    fn parse_type_inner(&mut self) -> Result<(Ty, Option<String>), CompileError> {
         loop {
             if self.is_ident("const") || self.is_ident("static") || self.is_ident("extern") || self.is_ident("unsigned") || self.is_ident("signed") {
                 self.bump();
@@ -999,6 +1013,9 @@ impl Parser {
             let init = if self.eat_punct("=") { Some(self.parse_assign()?) } else { None };
             let id = self.new_id();
             let label = self.comments.get(&line).cloned().filter(|c| !c.is_empty()).unwrap_or_else(|| name.clone());
+            if let Some(en) = &enum_name {
+                self.var_enums.insert(sym, en.clone());
+            }
             self.inputs.push(InputDecl { name: sym, ty: ty.clone(), enum_name: enum_name.clone(), label, decl_index: self.globals.len() });
             self.globals.push(VarDecl { id, name: sym, ty: ty.clone(), dims: vec![], init, is_static: false, line });
             if !self.eat_punct(",") {
@@ -1203,9 +1220,13 @@ impl Parser {
             return Ok(params);
         }
         loop {
-            let (ty, _) = self.parse_type()?;
+            let (ty, enum_name) = self.parse_type()?;
             let by_ref = self.eat_punct("&");
             let name = self.ident()?;
+            if let Some(en) = enum_name {
+                let sym = self.interner.intern(&name);
+                self.var_enums.insert(sym, en);
+            }
             let mut is_array = false;
             while self.eat_punct("[") {
                 is_array = true;
@@ -1225,6 +1246,7 @@ impl Parser {
     }
 
     fn parse_declarators(&mut self, ty: Ty, is_static: bool, line: u32) -> Result<Vec<VarDecl>, CompileError> {
+        let enum_name = self.last_enum.clone();
         let mut out = vec![];
         let mut first = true;
         loop {
@@ -1273,7 +1295,11 @@ impl Parser {
                 None
             };
             let id = self.new_id();
-            out.push(VarDecl { id, name: self.interner.intern(&name), ty: dty, dims, init, is_static, line });
+            let sym = self.interner.intern(&name);
+            if let Some(en) = &enum_name {
+                self.var_enums.insert(sym, en.clone());
+            }
+            out.push(VarDecl { id, name: sym, ty: dty, dims, init, is_static, line });
             if !self.eat_punct(",") {
                 break;
             }

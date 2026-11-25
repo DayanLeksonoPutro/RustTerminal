@@ -89,6 +89,8 @@ pub enum ProfitCalc {
     QuoteUsd,
     /// Base currency is USD (USDJPY, USDCHF...)
     BaseUsd,
+    /// Other symbols: profit per tick in USD as reported by the broker's terminal
+    TickValue { tick_value: f64, tick_size: f64 },
 }
 
 #[derive(Clone, Debug)]
@@ -190,7 +192,29 @@ impl Rng {
     }
 }
 
+/// Where a symbol's prices come from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Source {
+    /// generated prices
+    Simulated,
+    /// real history (imported); new prices are simulated from the last real close
+    History,
+    /// real history and real live quotes
+    Live,
+}
+
+impl Source {
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::Simulated => "simulated",
+            Source::History => "real history",
+            Source::Live => "live",
+        }
+    }
+}
+
 pub struct SymbolState {
+    pub source: Source,
     pub spec: SymbolSpec,
     pub bid: f64,
     pub ask: f64,
@@ -217,6 +241,9 @@ pub struct Market {
     series: HashMap<(usize, Timeframe), Vec<Bar>>,
     rng: Rng,
     pub now: i64,
+    feed: Option<crate::feed::LiveFeed>,
+    /// last message from the live price service
+    pub feed_status: String,
 }
 
 pub fn unix_now() -> i64 {
@@ -227,7 +254,16 @@ pub fn unix_now() -> i64 {
 }
 
 impl Market {
+    /// The market with real data where it exists (imported history, exported symbol
+    /// properties); everything else simulated.
     pub fn new() -> Self {
+        let mut m = Market::new_simulated();
+        m.load_real_data();
+        m
+    }
+
+    /// A fully simulated market (tests).
+    pub fn new_simulated() -> Self {
         let now = unix_now();
         let mut rng = Rng::new(now as u64);
         let symbols = default_symbols()
@@ -237,6 +273,7 @@ impl Market {
                 let p = round_to(p, spec.digits);
                 let spread = spec.spread_points as f64 * spec.point();
                 SymbolState {
+                    source: Source::Simulated,
                     bid: p,
                     ask: round_to(p + spread, spec.digits),
                     prev_bid: p,
@@ -250,7 +287,7 @@ impl Market {
                 }
             })
             .collect();
-        let mut m = Market { symbols, series: HashMap::new(), rng, now };
+        let mut m = Market { symbols, series: HashMap::new(), rng, now, feed: None, feed_status: String::new() };
         for i in 0..m.symbols.len() {
             let d1 = m.bars(i, Timeframe::D1).to_vec();
             if let Some(last) = d1.last() {
@@ -267,13 +304,184 @@ impl Market {
         self.symbols.iter().position(|s| s.spec.name.eq_ignore_ascii_case(name))
     }
 
-    /// Bars of a symbol/timeframe, oldest first. Generated on first use.
+    /// Bars of a symbol/timeframe, oldest first: real history when the symbol has it,
+    /// otherwise generated on first use.
     pub fn bars(&mut self, sym: usize, tf: Timeframe) -> &[Bar] {
         if !self.series.contains_key(&(sym, tf)) {
-            let bars = self.generate_history(sym, tf);
+            let real = match self.symbols[sym].source {
+                Source::Simulated => None,
+                _ => crate::history::load(self.symbols[sym].spec.name, tf).filter(|b| !b.is_empty()),
+            };
+            let bars = real.unwrap_or_else(|| self.generate_history(sym, tf));
             self.series.insert((sym, tf), bars);
         }
         &self.series[&(sym, tf)]
+    }
+
+    // ---------- real data ----------
+
+    /// Use exported symbol properties and imported history.
+    pub fn load_real_data(&mut self) {
+        for info in crate::history::load_symbols() {
+            self.add_or_update_symbol(&info);
+        }
+        for (name, tfs) in crate::history::stored() {
+            if self.symbol_index(&name).is_none() {
+                // a symbol known only from its history: guess its properties from prices
+                if let Some(bars) = tfs.first().and_then(|tf| crate::history::load(&name, *tf)) {
+                    let info = guess_info(&name, &bars);
+                    self.add_or_update_symbol(&info);
+                }
+            }
+            if let Some(i) = self.symbol_index(&name) {
+                self.use_history(i);
+            }
+        }
+    }
+
+    /// Add a symbol or replace its properties with the broker's.
+    pub fn add_or_update_symbol(&mut self, info: &crate::history::SymbolInfo) -> usize {
+        let spec = spec_from_info(info);
+        match self.symbol_index(&info.name) {
+            Some(i) => {
+                let s = &mut self.symbols[i];
+                s.spec = spec;
+                i
+            }
+            None => {
+                let p = if info.bid > 0.0 { info.bid } else { 1.0 };
+                let spread = spec.spread_points as f64 * spec.point();
+                self.symbols.push(SymbolState {
+                    source: Source::Simulated,
+                    bid: p,
+                    ask: round_to(p + spread, spec.digits),
+                    prev_bid: p,
+                    day_open: p,
+                    day_high: p,
+                    day_low: p,
+                    last_tick_time: self.now,
+                    ticks: 0,
+                    drift: 0.0,
+                    spec,
+                });
+                self.symbols.len() - 1
+            }
+        }
+    }
+
+    /// Switch a symbol to its stored history (after an import, too).
+    pub fn use_history(&mut self, i: usize) {
+        let name = self.symbols[i].spec.name;
+        if !crate::history::has_history(name) {
+            return;
+        }
+        self.series.retain(|(s, _), _| *s != i);
+        if self.symbols[i].source == Source::Simulated {
+            self.symbols[i].source = Source::History;
+        }
+        // current price and day range from the newest real bars
+        let finest = Timeframe::ALL.iter().find_map(|tf| crate::history::load(name, *tf).filter(|b| !b.is_empty()).map(|b| b.last().copied().unwrap()));
+        if let Some(last) = finest {
+            let s = &mut self.symbols[i];
+            let spread = (if last.spread > 0 { last.spread } else { s.spec.spread_points }) as f64 * s.spec.point();
+            s.bid = last.close;
+            s.prev_bid = last.close;
+            s.ask = round_to(last.close + spread, s.spec.digits);
+            s.last_tick_time = last.time;
+        }
+        if let Some(d) = crate::history::load(name, Timeframe::D1).and_then(|b| b.last().copied()) {
+            let s = &mut self.symbols[i];
+            s.day_open = d.open;
+            s.day_high = d.high.max(s.bid);
+            s.day_low = d.low.min(s.bid);
+        }
+    }
+
+    /// Start live quotes for every symbol that has a public price source.
+    pub fn start_live(&mut self) -> usize {
+        let list: Vec<(String, u32)> = self.symbols.iter().filter(|s| crate::feed::pair_for(s.spec.name).is_some()).map(|s| (s.spec.name.to_string(), s.spec.digits)).collect();
+        let n = list.len();
+        if n > 0 {
+            self.feed_status = "connecting to live prices...".into();
+            self.feed = Some(crate::feed::LiveFeed::start(list));
+        }
+        n
+    }
+
+    pub fn stop_live(&mut self) {
+        self.feed = None;
+        for s in self.symbols.iter_mut() {
+            if s.source == Source::Live {
+                s.source = if crate::history::has_history(s.spec.name) { Source::History } else { Source::Simulated };
+            }
+        }
+        self.feed_status = "live prices off".into();
+    }
+
+    pub fn live_running(&self) -> bool {
+        self.feed.is_some()
+    }
+
+    /// Apply what the live service sent; returns the symbols that got a real tick.
+    fn poll_feed(&mut self) -> Vec<usize> {
+        let msgs = match &self.feed {
+            Some(f) => f.poll(),
+            None => return vec![],
+        };
+        let mut ticked = vec![];
+        for m in msgs {
+            match m {
+                crate::feed::FeedMsg::History { symbol, tf, bars } => {
+                    if let Some(i) = self.symbol_index(&symbol) {
+                        self.symbols[i].source = Source::Live;
+                        if let Some(last) = bars.last() {
+                            let s = &mut self.symbols[i];
+                            if tf == Timeframe::D1 {
+                                s.day_open = last.open;
+                                s.day_high = last.high;
+                                s.day_low = last.low;
+                            }
+                            if tf == Timeframe::M1 {
+                                s.bid = last.close;
+                                s.prev_bid = last.close;
+                                s.ask = round_to(last.close + s.spec.spread_points as f64 * s.spec.point(), s.spec.digits);
+                            }
+                        }
+                        self.series.insert((i, tf), bars);
+                    }
+                }
+                crate::feed::FeedMsg::Quote { symbol, bid, ask, time } => {
+                    if let Some(i) = self.symbol_index(&symbol) {
+                        self.symbols[i].source = Source::Live;
+                        self.apply_quote(i, bid, ask, time);
+                        ticked.push(i);
+                    }
+                }
+                crate::feed::FeedMsg::Status(s) | crate::feed::FeedMsg::Error(s) => self.feed_status = s,
+            }
+        }
+        ticked
+    }
+
+    /// A real quote: set the prices and update every loaded series.
+    pub fn apply_quote(&mut self, i: usize, bid: f64, ask: f64, time: i64) {
+        let s = &mut self.symbols[i];
+        if s.bid == bid && s.ask == ask {
+            return;
+        }
+        s.prev_bid = s.bid;
+        s.bid = bid;
+        s.ask = ask;
+        s.day_high = s.day_high.max(bid);
+        s.day_low = s.day_low.min(bid);
+        s.last_tick_time = time;
+        s.ticks += 1;
+        let spread = ((ask - bid) / s.spec.point()).round() as i32;
+        for tf in Timeframe::ALL {
+            if let Some(bars) = self.series.get_mut(&(i, tf)) {
+                apply_tick(bars, tf, time, bid, spread);
+            }
+        }
     }
 
     pub fn bars_if_loaded(&self, sym: usize, tf: Timeframe) -> Option<&[Bar]> {
@@ -324,8 +532,11 @@ impl Market {
     /// Advance the market to the current time with a batch of ticks. Returns which symbols ticked.
     pub fn update(&mut self) -> Vec<usize> {
         self.now = unix_now();
-        let mut ticked = Vec::new();
+        let mut ticked = self.poll_feed();
         for i in 0..self.symbols.len() {
+            if self.symbols[i].source == Source::Live || ticked.contains(&i) {
+                continue; // real quotes only
+            }
             // each symbol ticks with some probability per frame
             if self.rng.uniform() > 0.35 {
                 continue;
@@ -368,8 +579,7 @@ impl Market {
 
 /// Apply a tick at `time` with price `bid` to a bar series, opening new bars as time passes.
 pub fn apply_tick(bars: &mut Vec<Bar>, tf: Timeframe, time: i64, bid: f64, spread: i32) {
-    let secs = tf.secs();
-    let open_time = time - time.rem_euclid(secs);
+    let open_time = crate::history::bar_open_time(tf, time);
     match bars.last_mut() {
         Some(last) if last.time >= open_time => {
             last.high = last.high.max(bid);
@@ -430,4 +640,72 @@ pub fn civil(t: i64) -> (i64, u32, u32, u32, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (if m <= 2 { y + 1 } else { y }, m, d, h, mi, s)
+}
+
+/// Leak a string for the 'static names symbol specs use (a handful per run).
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
+/// Symbol properties from the broker's terminal.
+pub fn spec_from_info(info: &crate::history::SymbolInfo) -> SymbolSpec {
+    let calc = if info.currency_profit.eq_ignore_ascii_case("USD") {
+        ProfitCalc::QuoteUsd
+    } else if info.currency_base.eq_ignore_ascii_case("USD") {
+        ProfitCalc::BaseUsd
+    } else if info.tick_value > 0.0 && info.tick_size > 0.0 {
+        ProfitCalc::TickValue { tick_value: info.tick_value, tick_size: info.tick_size }
+    } else {
+        ProfitCalc::QuoteUsd
+    };
+    let known = default_symbols().into_iter().find(|s| s.name.eq_ignore_ascii_case(&info.name));
+    let vol = known.as_ref().map(|k| k.vol_per_min).unwrap_or(0.00015);
+    SymbolSpec {
+        name: known.as_ref().map(|k| k.name).unwrap_or_else(|| leak(&info.name)),
+        description: if info.description.is_empty() { known.as_ref().map(|k| k.description).unwrap_or("") } else { leak(&info.description) },
+        digits: info.digits,
+        contract_size: if info.contract_size > 0.0 { info.contract_size } else { 100000.0 },
+        start_price: info.bid,
+        vol_per_min: vol,
+        spread_points: if info.spread > 0 { info.spread } else { 10 },
+        calc,
+        volume_min: if info.volume_min > 0.0 { info.volume_min } else { 0.01 },
+        volume_step: if info.volume_step > 0.0 { info.volume_step } else { 0.01 },
+        volume_max: if info.volume_max > 0.0 { info.volume_max } else { 100.0 },
+    }
+}
+
+/// Properties guessed from price history alone.
+fn guess_info(name: &str, bars: &[Bar]) -> crate::history::SymbolInfo {
+    let last = bars.last().map(|b| b.close).unwrap_or(1.0);
+    let digits = bars
+        .iter()
+        .rev()
+        .take(200)
+        .map(|b| {
+            let s = format!("{}", b.close);
+            s.split('.').nth(1).map(|f| f.len() as u32).unwrap_or(0)
+        })
+        .max()
+        .unwrap_or(5)
+        .min(8);
+    let upper = name.to_ascii_uppercase();
+    let (base, profit) = if upper.len() >= 6 { (upper[0..3].to_string(), upper[3..6].to_string()) } else { (String::new(), "USD".to_string()) };
+    let spread = bars.iter().rev().take(50).map(|b| b.spread).max().unwrap_or(0);
+    crate::history::SymbolInfo {
+        name: upper.clone(),
+        description: String::new(),
+        digits,
+        contract_size: if upper.starts_with("XAU") { 100.0 } else if upper.len() == 6 { 100000.0 } else { 1.0 },
+        volume_min: 0.01,
+        volume_max: 100.0,
+        volume_step: 0.01,
+        spread,
+        currency_base: base,
+        currency_profit: profit,
+        currency_margin: String::new(),
+        tick_value: 0.0,
+        tick_size: 0.0,
+        bid: last,
+    }
 }

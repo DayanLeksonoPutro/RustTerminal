@@ -264,6 +264,8 @@ pub struct Program {
     pub enums: HashMap<String, Vec<(String, i64)>>,
     pub structs: HashMap<Sym, Rc<StructDef>>,
     pub classes: HashMap<Sym, ClassInfo>,
+    /// enum type of variables, parameters and fields declared with one (for EnumToString)
+    pub var_enums: HashMap<Sym, String>,
     pub interner: Interner,
     pub warnings: Vec<String>,
     /// source files: [0] is the program, the rest are include files

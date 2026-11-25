@@ -225,6 +225,34 @@ impl Instance {
         Ok(result)
     }
 
+    /// EnumToString: the member name for the argument's enum type.
+    fn enum_name_of(&self, e: &Expr, v: i64) -> String {
+        let field = match e {
+            Expr::Var(s) => Some(*s),
+            Expr::Member(_, f) => Some(*f),
+            Expr::Cast(_, inner) => return self.enum_name_of(inner, v),
+            _ => None,
+        };
+        if let Some(s) = field {
+            let name = self.sym(s);
+            // a constant written directly
+            if self.lookup(s).is_none() && !self.this_has_field(s) && (self.prog.enum_consts.contains_key(&s) || builtins::constant(name).is_some()) {
+                return name.to_string();
+            }
+            if let Some(en) = self.prog.var_enums.get(&s) {
+                if let Some(members) = self.prog.enums.get(en) {
+                    if let Some((m, _)) = members.iter().find(|(_, x)| *x == v) {
+                        return m.clone();
+                    }
+                }
+                if let Some(m) = builtins::enum_member_name(en, v) {
+                    return m;
+                }
+            }
+        }
+        v.to_string()
+    }
+
     pub(super) fn call_builtin(&mut self, name: &str, args: &[Expr], host: &mut dyn Host) -> R<Value> {
         // functions that write back into a variable argument
         match name {
@@ -307,6 +335,10 @@ impl Instance {
                     }
                 }
                 return Ok(ret);
+            }
+            "EnumToString" if args.len() == 1 => {
+                let v = self.eval(&args[0], host)?.as_i64();
+                return Ok(Value::str(&self.enum_name_of(&args[0], v)));
             }
             "SymbolInfoDouble" | "SymbolInfoInteger" if args.len() == 3 => {
                 let a = self.eval_args(&args[..2], host)?;
@@ -787,6 +819,13 @@ impl Instance {
                         let tick_value = match q.spec.calc {
                             crate::market::ProfitCalc::QuoteUsd => q.spec.contract_size * q.spec.point(),
                             crate::market::ProfitCalc::BaseUsd => q.spec.contract_size * q.spec.point() / q.bid.max(1e-9),
+                            crate::market::ProfitCalc::TickValue { tick_value, tick_size } => {
+                                if tick_size > 0.0 {
+                                    tick_value * q.spec.point() / tick_size
+                                } else {
+                                    q.spec.contract_size * q.spec.point()
+                                }
+                            }
                         };
                         vd(match arg_i(a, 1, 0) {
                             1 | 13 | 22 | 23 | 30 => q.bid,

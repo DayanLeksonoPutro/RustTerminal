@@ -160,6 +160,13 @@ pub fn profit_usd(spec: &SymbolSpec, buy: bool, volume: f64, open: f64, close: f
                 raw
             }
         }
+        ProfitCalc::TickValue { tick_value, tick_size } => {
+            if tick_size > 0.0 {
+                diff / tick_size * tick_value * volume
+            } else {
+                raw
+            }
+        }
     }
 }
 
@@ -168,6 +175,11 @@ pub fn margin_usd(spec: &SymbolSpec, volume: f64, price: f64, leverage: u32) -> 
     match spec.calc {
         ProfitCalc::QuoteUsd => volume * spec.contract_size * price / lev,
         ProfitCalc::BaseUsd => volume * spec.contract_size / lev,
+        // quote currency converted to USD with the broker's tick value
+        ProfitCalc::TickValue { tick_value, tick_size } => {
+            let rate = if tick_size > 0.0 && spec.contract_size > 0.0 { tick_value / (tick_size * spec.contract_size) } else { 1.0 };
+            volume * spec.contract_size * price * rate / lev
+        }
     }
 }
 

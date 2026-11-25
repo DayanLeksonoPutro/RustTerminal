@@ -695,6 +695,60 @@ fn table() -> &'static HashMap<String, Const> {
     })
 }
 
+/// Name of a built-in enum member, e.g. ("ENUM_TIMEFRAMES", 16385) -> "PERIOD_H1".
+pub fn enum_member_name(enum_name: &str, value: i64) -> Option<String> {
+    let explicit: &[&str] = match enum_name {
+        "ENUM_MA_METHOD" => &["MODE_SMA", "MODE_EMA", "MODE_SMMA", "MODE_LWMA"],
+        "ENUM_STO_PRICE" => &["STO_LOWHIGH", "STO_CLOSECLOSE"],
+        "ENUM_APPLIED_VOLUME" => &["VOLUME_TICK", "VOLUME_REAL"],
+        "ENUM_DAY_OF_WEEK" => &["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"],
+        "ENUM_SERIESMODE" => &["MODE_OPEN", "MODE_LOW", "MODE_HIGH", "MODE_CLOSE", "MODE_VOLUME", "MODE_REAL_VOLUME", "MODE_SPREAD", "MODE_TIME"],
+        "ENUM_POINTER_TYPE" => &["POINTER_INVALID", "POINTER_DYNAMIC", "POINTER_AUTOMATIC"],
+        "ENUM_ACCOUNT_MARGIN_MODE" => &["ACCOUNT_MARGIN_MODE_RETAIL_NETTING", "ACCOUNT_MARGIN_MODE_EXCHANGE", "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING"],
+        _ => &[],
+    };
+    if !explicit.is_empty() {
+        return explicit.iter().find(|n| constant(n).and_then(|c| c.as_i64()) == Some(value)).map(|s| s.to_string());
+    }
+    let prefix = match enum_name {
+        "ENUM_TIMEFRAMES" => "PERIOD_",
+        "ENUM_APPLIED_PRICE" => "PRICE_",
+        "ENUM_ORDER_TYPE" => "ORDER_TYPE_",
+        "ENUM_POSITION_TYPE" => "POSITION_TYPE_",
+        "ENUM_DEAL_TYPE" => "DEAL_TYPE_",
+        "ENUM_DEAL_ENTRY" => "DEAL_ENTRY_",
+        "ENUM_DEAL_REASON" => "DEAL_REASON_",
+        "ENUM_ORDER_REASON" => "ORDER_REASON_",
+        "ENUM_POSITION_REASON" => "POSITION_REASON_",
+        "ENUM_TRADE_REQUEST_ACTIONS" => "TRADE_ACTION_",
+        "ENUM_ORDER_TYPE_FILLING" => "ORDER_FILLING_",
+        "ENUM_ORDER_TYPE_TIME" => "ORDER_TIME_",
+        "ENUM_ORDER_STATE" => "ORDER_STATE_",
+        "ENUM_SYMBOL_TRADE_MODE" => "SYMBOL_TRADE_MODE_",
+        "ENUM_SYMBOL_TRADE_EXECUTION" => "SYMBOL_TRADE_EXECUTION_",
+        "ENUM_SYMBOL_CALC_MODE" => "SYMBOL_CALC_MODE_",
+        "ENUM_SYMBOL_SWAP_MODE" => "SYMBOL_SWAP_MODE_",
+        "ENUM_ACCOUNT_TRADE_MODE" => "ACCOUNT_TRADE_MODE_",
+        "ENUM_ACCOUNT_STOPOUT_MODE" => "ACCOUNT_STOPOUT_MODE_",
+        "ENUM_INIT_RETCODE" => "INIT_",
+        "ENUM_LINE_STYLE" => "STYLE_",
+        "ENUM_DRAW_TYPE" => "DRAW_",
+        "ENUM_OBJECT" => "OBJ_",
+        "ENUM_ANCHOR_POINT" => "ANCHOR_",
+        "ENUM_BASE_CORNER" => "CORNER_",
+        "ENUM_TRADE_TRANSACTION_TYPE" => "TRADE_TRANSACTION_",
+        "ENUM_CHART_EVENT" => "CHARTEVENT_",
+        "ENUM_ALIGN_MODE" => "ALIGN_",
+        "ENUM_BORDER_TYPE" => "BORDER_",
+        "ENUM_INDICATOR" => "IND_",
+        "ENUM_DATATYPE" => "TYPE_",
+        _ => return None,
+    };
+    let mut names: Vec<&String> = table().iter().filter(|(k, v)| k.starts_with(prefix) && v.as_i64() == Some(value) && !k.ends_with('_')).map(|(k, _)| k).collect();
+    names.sort_by_key(|k| k.len());
+    names.first().map(|s| s.to_string())
+}
+
 pub fn constant(name: &str) -> Option<Const> {
     table().get(name).copied()
 }

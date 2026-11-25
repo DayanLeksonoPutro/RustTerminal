@@ -7,6 +7,8 @@ mod app;
 mod chart;
 mod dialogs;
 mod editor;
+mod feed;
+mod history;
 mod host;
 mod indicators;
 mod indicators_ext;

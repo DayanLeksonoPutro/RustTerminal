@@ -428,7 +428,7 @@ impl Instance {
 
     // ---------- variables ----------
 
-    fn lookup(&self, s: Sym) -> Option<VarRef> {
+    pub(super) fn lookup(&self, s: Sym) -> Option<VarRef> {
         if let Some(frame) = self.frames.last() {
             for scope in frame.iter().rev() {
                 for (n, v) in scope.iter().rev() {
@@ -448,7 +448,7 @@ impl Instance {
         self.this_stack.last().cloned().flatten()
     }
 
-    fn this_has_field(&self, s: Sym) -> bool {
+    pub(super) fn this_has_field(&self, s: Sym) -> bool {
         match self.this_stack.last() {
             Some(Some(t)) => t.borrow().fields.iter().any(|f| f.0 == s),
             _ => false,
