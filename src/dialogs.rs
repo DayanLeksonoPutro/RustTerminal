@@ -97,6 +97,7 @@ pub struct Dialogs {
     pub objects: bool,
     pub about: bool,
     pub message: Option<(String, String)>,
+    pub data: Option<crate::data_ui::DataDlg>,
 }
 
 /// The default value written in the program for an input, as text.
@@ -344,13 +345,14 @@ impl TerminalApp {
         self.ind_window(ctx);
         self.props_window(ctx);
         self.objects_window(ctx);
+        self.data_window(ctx);
         if self.dialogs.about {
             let mut open = true;
             egui::Window::new("About").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
                 ui.heading("Rust Terminal");
                 ui.label("A cross-platform trading terminal written in Rust.");
                 ui.label("Charts, built-in indicators, custom indicators, expert advisors and scripts from .mq5 source, a code editor and a strategy tester.");
-                ui.label(RichText::new("Prices and accounts are simulated.").weak());
+                ui.label(RichText::new("Accounts and order execution are simulated. Prices are real where history was imported or live prices are on (File > History Data).").weak());
             });
             self.dialogs.about = open;
         }

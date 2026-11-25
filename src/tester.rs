@@ -42,6 +42,11 @@ pub struct TesterHost {
     pub comment: String,
     agg_cache: HashMap<Timeframe, (usize, Vec<Bar>)>,
     pub loader: Box<dyn Fn(&str) -> Result<Rc<Program>, String>>,
+    /// real one-minute history behind the test (empty when there is none)
+    pub base: Vec<Bar>,
+    /// one-minute bars visible so far (closed + forming)
+    pub base_view: Vec<Bar>,
+    base_pos: usize,
 }
 
 impl QuoteSource for TesterHost {
@@ -87,26 +92,19 @@ impl Host for TesterHost {
         if tf == self.tf {
             return Some(&self.view);
         }
-        if tf.secs() < self.tf.secs() {
+        let with_base = !self.base.is_empty();
+        if with_base && tf == Timeframe::M1 {
+            return Some(&self.base_view);
+        }
+        if !with_base && tf.secs() < self.tf.secs() {
             return None;
         }
-        let key = self.view.len() * 1_000_000 + self.view.last().map(|b| b.tick_volume as usize).unwrap_or(0);
+        // other timeframes are built from what is visible so far
+        let src: &Vec<Bar> = if with_base { &self.base_view } else { &self.view };
+        let key = src.len() * 1_000_000 + src.last().map(|b| b.tick_volume as usize).unwrap_or(0);
         let fresh = !matches!(self.agg_cache.get(&tf), Some((k, _)) if *k == key);
         if fresh {
-            let secs = tf.secs();
-            let mut out: Vec<Bar> = vec![];
-            for b in &self.view {
-                let t = b.time - b.time.rem_euclid(secs);
-                match out.last_mut() {
-                    Some(l) if l.time == t => {
-                        l.high = l.high.max(b.high);
-                        l.low = l.low.min(b.low);
-                        l.close = b.close;
-                        l.tick_volume += b.tick_volume;
-                    }
-                    _ => out.push(Bar { time: t, ..*b }),
-                }
-            }
+            let out = crate::history::aggregate(src, tf);
             self.agg_cache.insert(tf, (key, out));
         }
         self.agg_cache.get(&tf).map(|(_, v)| v.as_slice())
@@ -209,6 +207,23 @@ impl TestRun {
         inputs: &HashMap<String, String>,
         loader: Box<dyn Fn(&str) -> Result<Rc<Program>, String>>,
     ) -> TestRun {
+        TestRun::new_inner(prog, spec, tf, bars, mode, deposit, leverage, inputs, loader, vec![], 0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_inner(
+        prog: Rc<Program>,
+        spec: SymbolSpec,
+        tf: Timeframe,
+        bars: Vec<Bar>,
+        mode: TickMode,
+        deposit: f64,
+        leverage: u32,
+        inputs: &HashMap<String, String>,
+        loader: Box<dyn Fn(&str) -> Result<Rc<Program>, String>>,
+        base: Vec<Bar>,
+        base_pos: usize,
+    ) -> TestRun {
         let warmup = 100.min(bars.len() / 4);
         let view = bars[..warmup].to_vec();
         let first = bars.get(warmup).copied().unwrap_or_default();
@@ -229,6 +244,9 @@ impl TestRun {
             comment: String::new(),
             agg_cache: HashMap::new(),
             loader,
+            base_view: base[..base_pos.min(base.len())].to_vec(),
+            base,
+            base_pos,
         };
         let mut inst = Instance::new(prog, spec.name, tf, inputs);
         let mut error = None;
@@ -242,6 +260,31 @@ impl TestRun {
             host.log.push(e.clone());
         }
         TestRun { host, inst, bar: warmup, start_bar: warmup, mode, done: error.is_some(), error, curve: vec![], ticks: 0, deposit }
+    }
+
+    /// A test driven by real one-minute history: the tested timeframe is built from it,
+    /// ticks follow every minute (open, low/high, high/low, close) like the platform's
+    /// "1 minute OHLC" model, and programs can read any timeframe.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_minutes(
+        prog: Rc<Program>,
+        spec: SymbolSpec,
+        tf: Timeframe,
+        minutes: Vec<Bar>,
+        mode: TickMode,
+        deposit: f64,
+        leverage: u32,
+        inputs: &HashMap<String, String>,
+        loader: Box<dyn Fn(&str) -> Result<Rc<Program>, String>>,
+    ) -> TestRun {
+        let bars = if tf == Timeframe::M1 { minutes.clone() } else { crate::history::aggregate(&minutes, tf) };
+        let warmup = 100.min(bars.len() / 4);
+        let first_time = bars.get(warmup).map(|b| b.time).unwrap_or(i64::MAX);
+        let base_pos = minutes.partition_point(|b| b.time < first_time);
+        // the host must see the warm-up minutes before OnInit runs
+        let mut run = TestRun::new_inner(prog, spec, tf, bars, mode, deposit, leverage, inputs, loader, minutes, base_pos);
+        run.host.base_pos = base_pos;
+        run
     }
 
     pub fn progress(&self) -> f32 {
@@ -286,10 +329,38 @@ impl TestRun {
                 return true;
             }
             let b = self.host.all[self.bar];
-            let path = self.tick_path(&b);
-            let n = path.len();
-            for (k, p) in path.into_iter().enumerate() {
-                let t = b.time + (secs * k as i64) / n.max(1) as i64;
+            // ticks of this bar: (time, price, minute bar index when driven by minutes)
+            let ticks: Vec<(i64, f64, Option<usize>)> = if self.host.base.is_empty() {
+                let path = self.tick_path(&b);
+                let n = path.len();
+                path.into_iter().enumerate().map(|(k, p)| (b.time + (secs * k as i64) / n.max(1) as i64, p, None)).collect()
+            } else {
+                let end = self.host.all.get(self.bar + 1).map(|x| x.time).unwrap_or(i64::MAX);
+                let mut v = vec![];
+                let mut j = self.host.base_pos;
+                while j < self.host.base.len() && self.host.base[j].time < end {
+                    let m = self.host.base[j];
+                    let path = if self.mode == TickMode::OpenPrices { vec![m.open] } else { self.tick_path(&m) };
+                    let n = path.len();
+                    for (k, p) in path.into_iter().enumerate() {
+                        v.push((m.time + (60 * k as i64) / n.max(1) as i64, p, Some(j)));
+                    }
+                    if self.mode == TickMode::OpenPrices {
+                        // open prices only: one tick at the bar's open, minutes still advance
+                        j += 1;
+                        while j < self.host.base.len() && self.host.base[j].time < end {
+                            j += 1;
+                        }
+                        break;
+                    }
+                    j += 1;
+                }
+                if v.is_empty() {
+                    v.push((b.time, b.open, None));
+                }
+                v
+            };
+            for (k, (t, p, minute)) in ticks.into_iter().enumerate() {
                 if k == 0 {
                     self.host.view.push(Bar { time: b.time, open: p, high: p, low: p, close: p, tick_volume: 1, spread: b.spread });
                 } else if let Some(l) = self.host.view.last_mut() {
@@ -297,6 +368,18 @@ impl TestRun {
                     l.low = l.low.min(p);
                     l.close = p;
                     l.tick_volume += 1;
+                }
+                if let Some(j) = minute {
+                    let m = self.host.base[j];
+                    match self.host.base_view.last_mut() {
+                        Some(l) if l.time == m.time => {
+                            l.high = l.high.max(p);
+                            l.low = l.low.min(p);
+                            l.close = p;
+                            l.tick_volume += 1;
+                        }
+                        _ => self.host.base_view.push(Bar { time: m.time, open: p, high: p, low: p, close: p, tick_volume: 1, spread: m.spread }),
+                    }
                 }
                 self.host.set_price(t, p);
                 self.ticks += 1;
@@ -319,6 +402,19 @@ impl TestRun {
             }
             if let Some(l) = self.host.view.last_mut() {
                 l.tick_volume = b.tick_volume;
+            }
+            if !self.host.base.is_empty() {
+                // the minutes of this bar are complete: make them exact
+                let end = self.host.all.get(self.bar + 1).map(|x| x.time).unwrap_or(i64::MAX);
+                let from = self.host.base_pos;
+                let mut to = from;
+                while to < self.host.base.len() && self.host.base[to].time < end {
+                    to += 1;
+                }
+                let keep = self.host.base_view.partition_point(|x| x.time < self.host.base.get(from).map(|m| m.time).unwrap_or(i64::MAX));
+                self.host.base_view.truncate(keep);
+                self.host.base_view.extend_from_slice(&self.host.base[from..to]);
+                self.host.base_pos = to;
             }
             self.curve.push((self.host.account.balance, self.host.account.equity()));
             self.bar += 1;

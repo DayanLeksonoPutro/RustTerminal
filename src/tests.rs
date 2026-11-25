@@ -576,3 +576,73 @@ fn export_script_round_trip() {
     std::env::remove_var("RUST_TERMINAL_DATA");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A test driven by one-minute bars: the expert reads M5 while being tested on H1,
+/// and receives four ticks per minute.
+#[test]
+fn tester_with_minutes() {
+    let src = r#"
+int h5, ticks = 0;
+int OnInit() { h5 = iMA(_Symbol, PERIOD_M5, 12, 0, MODE_EMA, PRICE_CLOSE); return h5 == INVALID_HANDLE ? 1 : 0; }
+void OnTick() {
+   ticks++;
+   double m5[]; ArraySetAsSeries(m5, true);
+   if(CopyBuffer(h5, 0, 0, 2, m5) < 2) { Print("no M5 data"); ExpertRemove(); return; }
+   MqlRates r[]; if(CopyRates(_Symbol, PERIOD_M1, 0, 1, r) != 1) { Print("no M1 data"); ExpertRemove(); return; }
+   if(PositionsTotal() == 0 && ticks % 500 == 0) {
+      MqlTradeRequest q = {}; MqlTradeResult res = {};
+      q.action = TRADE_ACTION_DEAL; q.symbol = _Symbol; q.volume = 0.1;
+      q.type = m5[0] > m5[1] ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+      q.price = q.type == ORDER_TYPE_BUY ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      OrderSend(q, res);
+   }
+}
+void OnDeinit(const int reason) { Print("ticks=", ticks); }
+"#;
+    let prog = Rc::new(compile("m5.mq5", src, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
+    let m = Market::new_simulated();
+    let spec = m.symbols[0].spec.clone();
+    // 6000 synthetic minutes
+    let mut minutes = vec![];
+    let mut p = 1.1;
+    let start = 1_704_153_600;
+    for i in 0..6000i64 {
+        let o = p;
+        p += ((i * 7919 % 13) as f64 - 6.0) * 0.00003;
+        minutes.push(crate::market::Bar { time: start + i * 60, open: o, high: o.max(p) + 0.00005, low: o.min(p) - 0.00005, close: p, tick_volume: 10, spread: 10 });
+    }
+    let mut run = TestRun::with_minutes(prog, spec, Timeframe::H1, minutes, TickMode::OhlcPoints, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+    while !run.step(50) {}
+    assert!(run.error.is_none(), "{:?}", run.error);
+    let log = run.host.log.join("\n");
+    assert!(!log.contains("no M5 data") && !log.contains("no M1 data"), "{}", log);
+    // 100 H1 bars of warm-up are skipped by the tester (25 here); the rest tick 4x per minute
+    assert!(run.ticks > 4 * 4000, "ticks {}", run.ticks);
+    assert!(run.host.account.deals.len() >= 2, "{}", log);
+}
+
+/// Needs the network: `cargo test live_feed -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn live_feed() {
+    let mut m = Market::new_simulated();
+    let n = m.start_live();
+    assert!(n >= 1);
+    let i = m.symbol_index("BTCUSD").unwrap();
+    let sim_price = m.symbols[i].bid;
+    let t0 = std::time::Instant::now();
+    let mut quotes = 0;
+    while t0.elapsed() < std::time::Duration::from_secs(40) && quotes < 3 {
+        let ticked = m.update();
+        if ticked.contains(&i) && m.symbols[i].source == crate::market::Source::Live {
+            quotes += 1;
+            println!("BTCUSD bid {} ask {} ({})", m.symbols[i].bid, m.symbols[i].ask, m.feed_status);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    assert!(quotes >= 1, "status: {}", m.feed_status);
+    let h1 = m.bars(i, Timeframe::H1).to_vec();
+    let d1 = m.bars(i, Timeframe::D1).to_vec();
+    println!("simulated start {} -> live {}, H1 bars {}, D1 bars {}, last H1 {:?}", sim_price, m.symbols[i].bid, h1.len(), d1.len(), h1.last());
+    assert!(h1.len() >= 500 && d1.len() >= 500);
+}

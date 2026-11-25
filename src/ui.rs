@@ -136,6 +136,15 @@ fn menu_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                         }
                     }
                 });
+                if ui.button("History Data...").clicked() {
+                    app.dialogs.data = Some(Default::default());
+                    ui.close_menu();
+                }
+                if ui.button("Import from MetaTrader 5").clicked() {
+                    let r = app.import_from_terminal();
+                    app.dialogs.message = Some(("Import from MetaTrader 5".into(), r.join("\n")));
+                    ui.close_menu();
+                }
                 if ui.button("Open Data Folder").clicked() {
                     storage::open_in_file_manager(&storage::data_dir());
                     ui.close_menu();
@@ -269,6 +278,14 @@ fn menu_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                     ui.close_menu();
                 }
                 ui.checkbox(&mut app.algo, "Algo Trading   Ctrl+E");
+                let mut live = app.market.live_running();
+                if ui.checkbox(&mut live, "Live Prices (crypto)").changed() {
+                    if live {
+                        app.market.start_live();
+                    } else {
+                        app.market.stop_live();
+                    }
+                }
             });
             ui.menu_button("Window", |ui| {
                 let titles: Vec<String> = app.charts.iter().map(|c| c.chart.title()).collect();
@@ -701,6 +718,8 @@ fn status_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                 )
             } else if !app.status.is_empty() {
                 app.status.clone()
+            } else if !app.market.feed_status.is_empty() {
+                app.market.feed_status.clone()
             } else {
                 String::new()
             };

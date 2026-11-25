@@ -67,12 +67,19 @@ impl TerminalApp {
     fn tester_start(&mut self) {
         let Some(prog) = self.tester.prog.clone() else { return };
         let Some(si) = self.market.symbol_index(&self.tester.symbol) else { return };
-        let bars = self.market.bars(si, self.tester.tf).to_vec();
         let spec = self.market.symbols[si].spec.clone();
+        // real one-minute history drives the test when it exists
+        let minutes = crate::history::load(spec.name, crate::market::Timeframe::M1).filter(|m| m.len() > 200);
         let inputs = self.tester.rows.iter().map(|r| (r.name.clone(), r.value.clone())).collect();
         let loader_cache = std::cell::RefCell::new(crate::host::ProgramCache::new());
         let loader = Box::new(move |name: &str| crate::host::load_program(&mut loader_cache.borrow_mut(), &crate::host::indicator_path(name)));
-        let run = TestRun::new(prog, spec, self.tester.tf, bars, self.tester.mode, self.tester.deposit, self.tester.leverage, &inputs, loader);
+        let run = match minutes {
+            Some(m) => TestRun::with_minutes(prog, spec, self.tester.tf, m, self.tester.mode, self.tester.deposit, self.tester.leverage, &inputs, loader),
+            None => {
+                let bars = self.market.bars(si, self.tester.tf).to_vec();
+                TestRun::new(prog, spec, self.tester.tf, bars, self.tester.mode, self.tester.deposit, self.tester.leverage, &inputs, loader)
+            }
+        };
         self.tester.run = Some(run);
         self.tester.tab = 2;
     }

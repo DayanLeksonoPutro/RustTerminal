@@ -5,6 +5,7 @@
 mod account;
 mod app;
 mod chart;
+mod data_ui;
 mod dialogs;
 mod editor;
 mod feed;

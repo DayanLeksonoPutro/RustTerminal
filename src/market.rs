@@ -453,8 +453,9 @@ impl Market {
                 crate::feed::FeedMsg::Quote { symbol, bid, ask, time } => {
                     if let Some(i) = self.symbol_index(&symbol) {
                         self.symbols[i].source = Source::Live;
-                        self.apply_quote(i, bid, ask, time);
-                        ticked.push(i);
+                        if self.apply_quote(i, bid, ask, time) {
+                            ticked.push(i);
+                        }
                     }
                 }
                 crate::feed::FeedMsg::Status(s) | crate::feed::FeedMsg::Error(s) => self.feed_status = s,
@@ -464,10 +465,10 @@ impl Market {
     }
 
     /// A real quote: set the prices and update every loaded series.
-    pub fn apply_quote(&mut self, i: usize, bid: f64, ask: f64, time: i64) {
+    pub fn apply_quote(&mut self, i: usize, bid: f64, ask: f64, time: i64) -> bool {
         let s = &mut self.symbols[i];
         if s.bid == bid && s.ask == ask {
-            return;
+            return false;
         }
         s.prev_bid = s.bid;
         s.bid = bid;
@@ -482,6 +483,7 @@ impl Market {
                 apply_tick(bars, tf, time, bid, spread);
             }
         }
+        true
     }
 
     pub fn bars_if_loaded(&self, sym: usize, tf: Timeframe) -> Option<&[Bar]> {

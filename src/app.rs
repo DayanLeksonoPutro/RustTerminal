@@ -149,7 +149,14 @@ impl TerminalApp {
         }
         let cur = saved.current.and_then(|l| saved.accounts.iter().position(|a| a.login == l)).unwrap_or(0);
         let mut app = TerminalApp {
-            market: Market::new(),
+            market: {
+                let mut m = Market::new();
+                // live crypto quotes unless offline or taking a screenshot
+                if (screenshot.is_none() || std::env::var("RUST_TERMINAL_LIVE").is_ok()) && std::env::var("RUST_TERMINAL_OFFLINE").is_err() {
+                    m.start_live();
+                }
+                m
+            },
             accounts: saved.accounts,
             cur,
             connected: true,
