@@ -30,6 +30,7 @@ pub enum ExtKind {
     Ama,
     Frama,
     Vidya,
+    AdxWilder,
 }
 
 /// Parameters in the order the i-function takes them (after symbol and timeframe).
@@ -352,6 +353,53 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
             }
             vec![v]
         }
+        // iADXWilder(period): buffers ADX, +DI, -DI with Wilder smoothing throughout
+        ExtKind::AdxWilder => {
+            let pp = p.i(0, 14).max(1) as usize;
+            let mut adx = vec![nan; n];
+            let mut pdi = vec![nan; n];
+            let mut mdi = vec![nan; n];
+            if n > pp + 1 {
+                let (mut tr_s, mut pdm_s, mut mdm_s) = (0.0, 0.0, 0.0);
+                let mut dx_hist: Vec<f64> = vec![];
+                let mut prev_adx = f64::NAN;
+                for i in 1..n {
+                    let (h, l, pc) = (bars[i].high, bars[i].low, bars[i - 1].close);
+                    let tr = (h - l).max((h - pc).abs()).max((l - pc).abs());
+                    let up = h - bars[i - 1].high;
+                    let dn = bars[i - 1].low - l;
+                    let pdm = if up > dn && up > 0.0 { up } else { 0.0 };
+                    let mdm = if dn > up && dn > 0.0 { dn } else { 0.0 };
+                    if i <= pp {
+                        tr_s += tr;
+                        pdm_s += pdm;
+                        mdm_s += mdm;
+                        if i < pp {
+                            continue;
+                        }
+                    } else {
+                        tr_s = tr_s - tr_s / pp as f64 + tr;
+                        pdm_s = pdm_s - pdm_s / pp as f64 + pdm;
+                        mdm_s = mdm_s - mdm_s / pp as f64 + mdm;
+                    }
+                    let (pd, md) = if tr_s != 0.0 { (100.0 * pdm_s / tr_s, 100.0 * mdm_s / tr_s) } else { (0.0, 0.0) };
+                    pdi[i] = pd;
+                    mdi[i] = md;
+                    let dx = if pd + md != 0.0 { 100.0 * (pd - md).abs() / (pd + md) } else { 0.0 };
+                    if prev_adx.is_nan() {
+                        dx_hist.push(dx);
+                        if dx_hist.len() == pp {
+                            prev_adx = dx_hist.iter().sum::<f64>() / pp as f64;
+                            adx[i] = prev_adx;
+                        }
+                    } else {
+                        prev_adx = (prev_adx * (pp as f64 - 1.0) + dx) / pp as f64;
+                        adx[i] = prev_adx;
+                    }
+                }
+            }
+            vec![adx, pdi, mdi]
+        }
         // iVIDyA(cmo_period, ema_period, shift, price)
         ExtKind::Vidya => {
             let cp = p.i(0, 9).max(1) as usize;
@@ -418,6 +466,7 @@ pub fn by_function(name: &str) -> Option<ExtKind> {
         "iAMA" => ExtKind::Ama,
         "iFrAMA" => ExtKind::Frama,
         "iVIDyA" => ExtKind::Vidya,
+        "iADXWilder" => ExtKind::AdxWilder,
         _ => return None,
     })
 }
@@ -428,7 +477,8 @@ pub fn double_params(kind: ExtKind) -> &'static [usize] {
     &[]
 }
 
-pub const FUNCTIONS: [&str; 21] = [
+pub const FUNCTIONS: [&str; 22] = [
+    "iADXWilder",
     "iDEMA", "iTEMA", "iTriX", "iOsMA", "iAO", "iAC", "iBearsPower", "iBullsPower", "iForce", "iMFI", "iOBV", "iRVI", "iStdDev",
     "iDeMarker", "iChaikin", "iAD", "iBWMFI", "iGator", "iAMA", "iFrAMA", "iVIDyA",
 ];

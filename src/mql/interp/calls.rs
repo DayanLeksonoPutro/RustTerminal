@@ -137,19 +137,11 @@ impl Instance {
         let count = arg_i(a, 3, 0);
         let arr = self.arr_of(a.get(4).unwrap_or(&Value::Void))?;
         let data = self.with_bars(host, &sym, tf, |bars| {
-            let n = bars.len() as i64;
-            let (newest, cnt) = if start > 100_000_000 {
-                let idx = bars.iter().rposition(|b| b.time <= start).map(|i| i as i64).unwrap_or(-1);
-                (idx + count - 1, count)
-            } else {
-                (n - 1 - start, count)
-            };
-            let newest = newest.min(n - 1);
-            let oldest = (newest - cnt + 1).max(0);
-            if newest < 0 || oldest > newest {
-                return vec![];
+            let times: Vec<i64> = bars.iter().map(|b| b.time).collect();
+            match series_range(&times, start, count) {
+                Some((o, nw)) => bars[o..=nw].iter().map(get).collect::<Vec<Value>>(),
+                None => vec![],
             }
-            bars[oldest as usize..=newest as usize].iter().map(get).collect::<Vec<Value>>()
         });
         match data {
             Some(d) if !d.is_empty() => {
@@ -755,13 +747,10 @@ impl Instance {
                 let arr = self.arr_of(a.get(4).unwrap_or(&Value::Void))?;
                 let bars: Vec<Bar> = self
                     .with_bars(host, &sym, tf, |b| {
-                        let n = b.len() as i64;
-                        let newest = n - 1 - start;
-                        let oldest = (newest - count + 1).max(0);
-                        if newest < 0 || oldest > newest {
-                            vec![]
-                        } else {
-                            b[oldest as usize..=newest as usize].to_vec()
+                        let times: Vec<i64> = b.iter().map(|x| x.time).collect();
+                        match series_range(&times, start, count) {
+                            Some((o, nw)) => b[o..=nw].to_vec(),
+                            None => vec![],
                         }
                     })
                     .unwrap_or_default();
@@ -1171,19 +1160,29 @@ impl Instance {
                 let start = arg_i(a, 2, 0);
                 let count = arg_i(a, 3, 0);
                 let arr = self.arr_of(a.get(4).unwrap_or(&Value::Void))?;
+                let times: Vec<i64> = if start > 100_000_000 {
+                    let st = match self.handles.get(h.max(0) as usize).and_then(|x| x.as_ref()) {
+                        Some(Handle::Builtin { symbol, tf, .. }) | Some(Handle::Custom { symbol, tf, .. }) | Some(Handle::Ext { symbol, tf, .. }) => Some((symbol.clone(), *tf)),
+                        None => None,
+                    };
+                    st.and_then(|(s, t)| self.with_bars(host, &s, t, |b| b.iter().map(|x| x.time).collect())).unwrap_or_default()
+                } else {
+                    vec![]
+                };
                 match self.handle_buffer(host, h, buf)? {
                     Some(data) => {
-                        let n = data.len() as i64;
-                        let newest = n - 1 - start;
-                        let oldest = (newest - count + 1).max(0);
-                        if newest < 0 || oldest > newest {
-                            self.last_error = 4806;
-                            vi(-1)
-                        } else {
-                            let vals: Vec<Value> = data[oldest as usize..=newest as usize].iter().map(|v| vd(*v)).collect();
-                            let k = vals.len() as i64;
-                            self.set_array_chrono(&arr, vals);
-                            vi(k)
+                        let times = if times.len() == data.len() { times } else { (0..data.len() as i64).collect() };
+                        match series_range(&times, start, count) {
+                            Some((o, nw)) => {
+                                let vals: Vec<Value> = data[o..=nw].iter().map(|v| vd(*v)).collect();
+                                let k = vals.len() as i64;
+                                self.set_array_chrono(&arr, vals);
+                                vi(k)
+                            }
+                            None => {
+                                self.last_error = 4806;
+                                vi(-1)
+                            }
                         }
                     }
                     None => {
@@ -1971,4 +1970,31 @@ pub fn printf(fmt: &str, args: &[Value]) -> String {
         out.push_str(&s);
     }
     out
+}
+
+/// Index range (oldest, newest) for the Copy* functions. `start` is a bar position counted
+/// back from the newest bar, or a bar time; `count` is a number of bars, or a stop time
+/// when both are times. Copying by time goes from the start time into the past.
+pub(super) fn series_range(times: &[i64], start: i64, count: i64) -> Option<(usize, usize)> {
+    let n = times.len() as i64;
+    if n == 0 || count == 0 {
+        return None;
+    }
+    const T: i64 = 100_000_000;
+    let (oldest, newest) = if start > T && count > T {
+        let (a, b) = if start <= count { (start, count) } else { (count, start) };
+        let o = times.iter().position(|&t| t >= a)? as i64;
+        let nw = times.iter().rposition(|&t| t <= b)? as i64;
+        (o, nw)
+    } else if start > T {
+        let nw = times.iter().rposition(|&t| t <= start)? as i64;
+        ((nw - count + 1).max(0), nw)
+    } else {
+        let nw = (n - 1 - start.max(0)).min(n - 1);
+        ((nw - count + 1).max(0), nw)
+    };
+    if newest < 0 || oldest > newest || newest >= n {
+        return None;
+    }
+    Some((oldest as usize, newest as usize))
 }

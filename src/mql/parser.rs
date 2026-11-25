@@ -456,7 +456,7 @@ impl Parser {
     fn predeclare(&mut self, toks: &[Token]) {
         for w in toks.windows(2) {
             if let (Tok::Ident(k), Tok::Ident(n)) = (&w[0].tok, &w[1].tok) {
-                if (k == "class" || k == "struct" || k == "interface") && !self.type_names.contains(n) {
+                if (k == "class" || k == "struct" || k == "interface" || k == "union") && !self.type_names.contains(n) {
                     let sym = self.interner.intern(n);
                     self.type_names.insert(n.clone());
                     self.structs.insert(sym, Rc::new(StructDef { name: sym, fields: vec![] }));
@@ -778,7 +778,7 @@ impl Parser {
     /// class / struct / interface definition (also forward declarations).
     fn parse_class(&mut self, template: bool) -> Result<(), CompileError> {
         let kw = self.ident()?;
-        let is_class = kw != "struct";
+        let is_class = kw != "struct" && kw != "union";
         let name = self.ident()?;
         let sym = self.interner.intern(&name);
         self.type_names.insert(name.clone());
@@ -965,7 +965,7 @@ impl Parser {
                 }
                 Tok::Ident(s) if s == "input" || s == "sinput" => self.parse_input()?,
                 Tok::Ident(s) if s == "enum" => self.parse_enum()?,
-                Tok::Ident(s) if s == "struct" || s == "class" || s == "interface" => self.parse_class(false)?,
+                Tok::Ident(s) if s == "struct" || s == "class" || s == "interface" || s == "union" => self.parse_class(false)?,
                 Tok::Ident(s) if s == "template" => self.parse_template()?,
                 Tok::Ident(s) if s == "typedef" => self.parse_typedef()?,
                 Tok::Ident(s) if self.is_class_name(&s) && matches!(self.peek_at(1), Tok::Punct("::") | Tok::Punct("<")) && self.is_ctor_def() => {
@@ -1456,6 +1456,11 @@ impl Parser {
                 }
                 _ => {}
             }
+        }
+        if (self.is_ident("struct") || self.is_ident("class") || self.is_ident("union")) && matches!(self.peek_at(2), Tok::Punct("{") | Tok::Punct(":")) {
+            // a type defined inside a function
+            self.parse_class(false)?;
+            return Ok(self.mk(StmtKind::Empty, line, col));
         }
         if self.looks_like_decl() {
             let is_static = self.is_ident("static");
