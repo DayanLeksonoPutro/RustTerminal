@@ -9,6 +9,7 @@ mod dialogs;
 mod editor;
 mod host;
 mod indicators;
+mod indicators_ext;
 mod market;
 mod mql;
 mod objects;

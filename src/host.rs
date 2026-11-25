@@ -42,7 +42,7 @@ pub fn load_program(cache: &mut ProgramCache, path: &Path) -> Result<Rc<Program>
     if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ex5")) {
         return Err("compiled .ex5 files are encrypted and can't be run here; use the program's .mq5 source".into());
     }
-    let src = std::fs::read_to_string(path).map_err(|e| format!("cannot open file: {}", e))?;
+    let src = storage::read_source(path).map_err(|e| format!("cannot open file: {}", e))?;
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("program.mq5").to_string();
     let loader = storage::include_loader(path.parent().map(|p| p.to_path_buf()));
     match compile(&name, &src, &loader) {

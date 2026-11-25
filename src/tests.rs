@@ -254,3 +254,121 @@ void OnStart() {
     assert!(joined.contains("rect=6.0 square=16.0 22 16 2 true 8 2.5 hi true true true"), "{}", joined);
     assert!(lines.last().unwrap().ends_with("bye square"), "{}", joined);
 }
+
+/// Compatibility report over a folder of real programs (not run by default):
+/// `CORPUS=/path/to/MQL5 cargo test corpus -- --ignored --nocapture`
+/// Every .mq5 under Indicators/, Experts/ and Scripts/ is compiled; indicators run
+/// OnCalculate, experts run a short strategy test. Includes come from <CORPUS>/Include.
+#[test]
+#[ignore]
+fn corpus() {
+    use std::path::{Path, PathBuf};
+    let root = PathBuf::from(std::env::var("CORPUS").expect("set CORPUS to an MQL5 folder"));
+    let only = std::env::var("CORPUS_FILTER").unwrap_or_default();
+    fn walk(d: &Path, out: &mut Vec<PathBuf>) {
+        if let Ok(rd) = std::fs::read_dir(d) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "mq5") {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    let mut files = vec![];
+    for sub in ["Indicators", "Experts", "Scripts"] {
+        walk(&root.join(sub), &mut files);
+    }
+    files.sort();
+    files.retain(|f| f.to_string_lossy().contains(&only));
+    let inc_root = root.join("Include");
+    let ind_root = root.join("Indicators");
+    let (mut ok_c, mut ok_r) = (0, 0);
+    let mut errs: HashMap<String, Vec<String>> = HashMap::new();
+    let mut m = Market::new();
+    let bars = m.bars(0, Timeframe::H1).to_vec();
+    let spec = m.symbols[0].spec.clone();
+    for f in &files {
+        let rel = f.strip_prefix(&root).unwrap().to_string_lossy().to_string();
+        let src = match std::fs::read(f) {
+            Ok(b) => crate::storage::decode_source(&b),
+            Err(_) => continue,
+        };
+        let base = f.parent().unwrap().to_path_buf();
+        let inc = inc_root.clone();
+        let loader = move |p: &str| -> Option<String> {
+            [base.join(p), inc.join(p)].iter().find_map(|c| std::fs::read(c).ok()).map(|b| crate::storage::decode_source(&b))
+        };
+        let name = f.file_name().unwrap().to_string_lossy().to_string();
+        let prog = match compile(&name, &src, &loader) {
+            Ok(p) => Rc::new(p),
+            Err(e) => {
+                let first = e.first().map(|e| format!("{} (line {})", e.msg, e.line)).unwrap_or_default();
+                let key = first.split(" (line").next().unwrap_or("").to_string();
+                let key = key.split(" - ").last().unwrap_or(&key).to_string();
+                println!("COMPILE FAIL {}: {}", rel, first);
+                errs.entry(format!("compile: {}", key)).or_default().push(rel);
+                continue;
+            }
+        };
+        ok_c += 1;
+        let ind_root2 = ind_root.clone();
+        let inc2 = inc_root.clone();
+        let prog_loader: Box<dyn Fn(&str) -> Result<Rc<crate::mql::Program>, String>> = Box::new(move |n: &str| {
+            let rel = n.replace('\\', "/");
+            let rel = if rel.ends_with(".mq5") { rel } else { format!("{}.mq5", rel) };
+            let p = ind_root2.join(&rel);
+            let b = std::fs::read(&p).map_err(|e| format!("{}: {}", rel, e))?;
+            let src = crate::storage::decode_source(&b);
+            let base = p.parent().unwrap().to_path_buf();
+            let inc = inc2.clone();
+            let l = move |q: &str| -> Option<String> { [base.join(q), inc.join(q)].iter().find_map(|c| std::fs::read(c).ok()).map(|b| crate::storage::decode_source(&b)) };
+            compile(&rel, &src, &l).map(Rc::new).map_err(|e| format!("{:?}", e.first()))
+        });
+        let result: Result<(), String> = (|| {
+            match prog.kind {
+                crate::mql::ProgramKind::Indicator => {
+                    let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), prog_loader);
+                    run.host.view = bars.clone();
+                    let mut inst = crate::mql::Instance::new(prog.clone(), "EURUSD", Timeframe::H1, &HashMap::new());
+                    let code = inst.init(&mut run.host).map_err(|e| inst.fmt_err(&e))?;
+                    if code != 0 {
+                        return Err(format!("OnInit returned {}", code));
+                    }
+                    inst.calculate(&mut run.host).map_err(|e| inst.fmt_err(&e))?;
+                    inst.calculate(&mut run.host).map_err(|e| inst.fmt_err(&e))?;
+                    Ok(())
+                }
+                crate::mql::ProgramKind::Expert => {
+                    let short: Vec<crate::market::Bar> = bars[..600.min(bars.len())].to_vec();
+                    let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, short, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), prog_loader);
+                    let mut guard = 0;
+                    while !run.step(100) && guard < 1000 {
+                        guard += 1;
+                    }
+                    match &run.error {
+                        Some(e) => Err(e.clone()),
+                        None => Ok(()),
+                    }
+                }
+                _ => Ok(()),
+            }
+        })();
+        match result {
+            Ok(()) => ok_r += 1,
+            Err(e) => {
+                println!("RUN FAIL {}: {}", rel, e);
+                let key = e.split(" in '").next().unwrap_or(&e).to_string();
+                errs.entry(format!("run: {}", key)).or_default().push(rel);
+            }
+        }
+    }
+    let mut v: Vec<_> = errs.into_iter().collect();
+    v.sort_by_key(|(_, f)| std::cmp::Reverse(f.len()));
+    println!("\n==== {} files: {} compile, {} compile+run OK ====", files.len(), ok_c, ok_r);
+    for (k, f) in v.iter().take(60) {
+        println!("{:4}  {}", f.len(), k);
+    }
+}

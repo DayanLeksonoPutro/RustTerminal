@@ -184,6 +184,14 @@ pub trait Host {
     fn is_tester(&self) -> bool;
     fn symbol_names(&self) -> Vec<String>;
     fn global_vars(&mut self) -> &mut HashMap<String, f64>;
+    /// Sandbox folder for FileOpen.
+    fn files_dir(&self) -> std::path::PathBuf {
+        crate::storage::mql_dir().join("Files")
+    }
+    /// Folder for FILE_COMMON.
+    fn common_files_dir(&self) -> std::path::PathBuf {
+        crate::storage::data_dir().join("Common").join("Files")
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -201,6 +209,7 @@ pub struct PlotRt {
 
 pub enum Handle {
     Builtin { kind: IndKind, params: IndParams, symbol: String, tf: Timeframe },
+    Ext { kind: crate::indicators_ext::ExtKind, params: crate::indicators_ext::ExtParams, symbol: String, tf: Timeframe },
     Custom { inst: Option<Box<Instance>>, symbol: String, tf: Timeframe },
 }
 
@@ -256,6 +265,8 @@ pub struct Instance {
     rand_state: u64,
     pub inputs_text: Vec<(String, String)>,
     pub initialized: bool,
+    files: HashMap<i64, extra::FileH>,
+    next_file: i64,
 }
 
 impl Instance {
@@ -311,6 +322,8 @@ impl Instance {
             rand_state: 1,
             inputs_text: vec![],
             initialized: false,
+            files: HashMap::new(),
+            next_file: 1,
             prog,
         };
         inst.inputs_text = inst
@@ -1722,3 +1735,4 @@ pub fn parse_input_value(text: &str, ty: &Ty, enum_name: Option<&str>, prog: &Pr
 }
 
 mod calls;
+mod extra;

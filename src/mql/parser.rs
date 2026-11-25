@@ -35,6 +35,7 @@ struct Parser {
     cond: Vec<Cond>,
     counter: i64,
     included: HashSet<String>,
+    cur_dir: String,
     type_names: HashSet<String>,
     enum_types: HashSet<String>,
     structs: HashMap<Sym, Rc<StructDef>>,
@@ -81,6 +82,7 @@ impl Parser {
             cond: vec![],
             counter: 0,
             included: HashSet::new(),
+            cur_dir: String::new(),
             type_names,
             enum_types: HashSet::new(),
             structs,
@@ -147,10 +149,7 @@ impl Parser {
             let t = &toks[i];
             match &t.tok {
                 Tok::Directive(d) => {
-                    let (word, rest) = match d.find(char::is_whitespace) {
-                        Some(p) => (&d[..p], d[p..].trim()),
-                        None => (d.as_str(), ""),
-                    };
+                    let (word, rest) = split_directive(d);
                     match word {
                         "ifdef" | "ifndef" => {
                             let parent = self.pp_active();
@@ -311,10 +310,7 @@ impl Parser {
 
     fn directive(&mut self, d: &str, t: &Token, out: &mut Vec<Token>, loader: Loader, depth: usize) -> Result<(), CompileError> {
         let err = |msg: String| CompileError { line: t.line, col: t.col, msg };
-        let (word, rest) = match d.find(char::is_whitespace) {
-            Some(p) => (&d[..p], d[p..].trim()),
-            None => (d, ""),
-        };
+        let (word, rest) = split_directive(d);
         match word {
             "property" => self.property(rest),
             "define" => {
@@ -338,26 +334,39 @@ impl Parser {
                 self.macros.remove(rest);
             }
             "include" => {
+                let quoted = rest.starts_with('"');
                 let path = rest.trim_matches(|c| c == '<' || c == '>' || c == '"').replace('\\', "/");
                 if depth > 16 {
                     return Err(err("include nesting too deep".into()));
                 }
-                let lower = path.to_ascii_lowercase();
-                if self.included.contains(&lower) {
-                    return Ok(()); // every include file is read once
+                // quoted includes are looked up next to the including file first
+                let mut cands = vec![];
+                if quoted && !self.cur_dir.is_empty() {
+                    cands.push(normalize_path(&format!("{}/{}", self.cur_dir, path)));
                 }
-                self.included.insert(lower.clone());
-                // headers whose classes are built into the engine
-                if builtins::NATIVE_HEADERS.iter().any(|h| lower.ends_with(h)) {
-                    return Ok(());
+                cands.push(normalize_path(&path));
+                let native = |p: &str| {
+                    let l = p.to_ascii_lowercase();
+                    builtins::NATIVE_HEADERS.iter().any(|h| l == *h || l.ends_with(&format!("/{}", h)))
+                };
+                if cands.iter().any(|c| native(c)) {
+                    return Ok(()); // classes built into the engine
                 }
-                match loader(&path) {
-                    Some(src) => {
-                        let lexed = lex(&src).map_err(|e| err(format!("{}: {}", path, e.msg)))?;
-                        let saved = std::mem::replace(&mut self.file_name, path.clone());
+                let found = cands.iter().find_map(|c| loader(c).map(|src| (c.clone(), src)));
+                match found {
+                    Some((resolved, src)) => {
+                        let key = resolved.to_ascii_lowercase();
+                        if !self.included.insert(key) {
+                            return Ok(()); // every include file is read once
+                        }
+                        let lexed = lex(&src).map_err(|e| err(format!("{}: {}", resolved, e.msg)))?;
+                        let saved = std::mem::replace(&mut self.file_name, resolved.clone());
+                        let dir = resolved.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+                        let saved_dir = std::mem::replace(&mut self.cur_dir, dir);
                         let inner = self.preprocess(lexed.tokens, loader, depth + 1);
                         self.file_name = saved;
-                        out.extend(inner.map_err(|e| err(format!("{} ({}): {}", path, e.line, e.msg)))?);
+                        self.cur_dir = saved_dir;
+                        out.extend(inner.map_err(|e| err(format!("{} ({}): {}", resolved, e.line, e.msg)))?);
                     }
                     None => return Err(err(format!("can't open \"{}\" include file", path))),
                 }
@@ -958,6 +967,7 @@ impl Parser {
         let line = self.tok().line;
         let is_static = self.is_ident("static");
         let (ty, _) = self.parse_type()?;
+        let is_static = is_static || self.eat_word("static");
         // out-of-class method or static member: `int CFoo::Bar(...)`, `int CFoo::count = 0;`
         if let Tok::Ident(cname) = self.peek().clone() {
             if self.is_class_name(&cname) && matches!(self.peek_at(1), Tok::Punct("::") | Tok::Punct("<")) {
@@ -1014,6 +1024,15 @@ impl Parser {
         self.expect(";")?;
         self.globals.extend(decls);
         Ok(())
+    }
+
+    fn eat_word(&mut self, w: &str) -> bool {
+        if self.is_ident(w) {
+            self.bump();
+            true
+        } else {
+            false
+        }
     }
 
     fn eat_ident_seq(&mut self, words: &[&str]) {
@@ -1289,6 +1308,7 @@ impl Parser {
         if self.looks_like_decl() {
             let is_static = self.is_ident("static");
             let (ty, _) = self.parse_type()?;
+            let is_static = is_static || self.eat_word("static");
             let d = self.parse_declarators(ty, is_static, line)?;
             self.expect(";")?;
             return Ok(self.mk(StmtKind::Decl(d), line, col));
@@ -1719,4 +1739,27 @@ fn substitute(params: &[String], body: &[Token], raw: &[Vec<Token>], expanded: &
         i += 1;
     }
     Ok(out)
+}
+
+/// Split a directive into its word and the rest: `include<x.mqh>` -> ("include", "<x.mqh>").
+fn split_directive(d: &str) -> (&str, &str) {
+    match d.find(|c: char| c.is_whitespace() || c == '<' || c == '"') {
+        Some(p) => (&d[..p], d[p..].trim()),
+        None => (d, ""),
+    }
+}
+
+/// Resolve `.` and `..` segments of a relative path.
+fn normalize_path(p: &str) -> String {
+    let mut parts: Vec<&str> = vec![];
+    for seg in p.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    parts.join("/")
 }

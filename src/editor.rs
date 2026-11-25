@@ -54,7 +54,7 @@ impl Editor {
             self.open = true;
             return;
         }
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let text = crate::storage::read_source(&path).unwrap_or_default();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("untitled.mq5").to_string();
         self.files.push(EditorFile { path, name, text, dirty: false });
         self.current = self.files.len() - 1;

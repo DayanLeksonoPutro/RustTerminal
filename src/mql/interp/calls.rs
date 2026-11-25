@@ -28,32 +28,32 @@ fn vb(v: bool) -> Value {
 }
 
 impl Instance {
-    fn eval_args(&mut self, args: &[Expr], host: &mut dyn Host) -> R<Vec<Value>> {
+    pub(super) fn eval_args(&mut self, args: &[Expr], host: &mut dyn Host) -> R<Vec<Value>> {
         args.iter().map(|a| self.eval(a, host)).collect()
     }
 
-    fn arr_of(&self, v: &Value) -> R<ArrRef> {
+    pub(super) fn arr_of(&self, v: &Value) -> R<ArrRef> {
         match v {
             Value::Arr(a) => Ok(a.clone()),
             _ => Err(self.err("array expected")),
         }
     }
 
-    fn sym_arg(&self, v: Option<&Value>) -> String {
+    pub(super) fn sym_arg(&self, v: Option<&Value>) -> String {
         match v {
             Some(Value::Str(s)) if !s.is_empty() => s.to_string(),
             _ => self.symbol.clone(),
         }
     }
 
-    fn tf_arg(&self, v: Option<&Value>) -> Timeframe {
+    pub(super) fn tf_arg(&self, v: Option<&Value>) -> Timeframe {
         match v.map(|v| v.as_i64()) {
             Some(0) | None => self.tf,
             Some(x) => Timeframe::from_mql(x).unwrap_or(self.tf),
         }
     }
 
-    fn struct_get(&self, s: &Value, field: &str) -> Value {
+    pub(super) fn struct_get(&self, s: &Value, field: &str) -> Value {
         if let (Value::Struct(s), Some(sym)) = (s, self.prog.interner.get(field)) {
             if let Some((_, _, v)) = s.borrow().fields.iter().find(|(n, _, _)| *n == sym) {
                 return v.clone();
@@ -62,7 +62,7 @@ impl Instance {
         Value::Void
     }
 
-    fn struct_set(&self, s: &Value, field: &str, v: Value) {
+    pub(super) fn struct_set(&self, s: &Value, field: &str, v: Value) {
         if let (Value::Struct(s), Some(sym)) = (s, self.prog.interner.get(field)) {
             let mut sb = s.borrow_mut();
             if let Some(f) = sb.fields.iter_mut().find(|(n, _, _)| *n == sym) {
@@ -78,9 +78,25 @@ impl Instance {
         }
     }
 
-    fn set_array_chrono(&self, arr: &ArrRef, data: Vec<Value>) {
+    /// Store copied series data (oldest first). An indicator buffer keeps its size and
+    /// receives the values at its newest end; a static array is filled from the start.
+    pub(super) fn set_array_chrono(&self, arr: &ArrRef, data: Vec<Value>) {
+        let is_buffer = self.buffers.iter().flatten().any(|(b, _)| Rc::ptr_eq(b, arr));
         let mut a = arr.borrow_mut();
-        a.data = data;
+        if is_buffer {
+            let n = a.data.len();
+            let k = data.len().min(n);
+            let skip = data.len() - k;
+            for (i, v) in data.into_iter().skip(skip).enumerate() {
+                a.data[n - k + i] = v;
+            }
+        } else if !a.dynamic && a.data.len() >= data.len() {
+            for (i, v) in data.into_iter().enumerate() {
+                a.data[i] = v;
+            }
+        } else {
+            a.data = data;
+        }
     }
 
     fn do_trade(&mut self, host: &mut dyn Host, op: TradeOp) -> TradeResult {
@@ -100,21 +116,21 @@ impl Instance {
         r
     }
 
-    fn position(&self, host: &dyn Host, ticket: Option<u64>) -> Option<Position> {
+    pub(super) fn position(&self, host: &dyn Host, ticket: Option<u64>) -> Option<Position> {
         let t = ticket?;
         host.account().positions.iter().find(|p| p.ticket == t).cloned()
     }
-    fn order(&self, host: &dyn Host, ticket: Option<u64>) -> Option<PendingOrder> {
+    pub(super) fn order(&self, host: &dyn Host, ticket: Option<u64>) -> Option<PendingOrder> {
         let t = ticket?;
         host.account().orders.iter().find(|o| o.ticket == t).cloned()
     }
 
-    fn with_bars<T>(&self, host: &mut dyn Host, sym: &str, tf: Timeframe, f: impl FnOnce(&[Bar]) -> T) -> Option<T> {
+    pub(super) fn with_bars<T>(&self, host: &mut dyn Host, sym: &str, tf: Timeframe, f: impl FnOnce(&[Bar]) -> T) -> Option<T> {
         host.bars(sym, tf).map(f)
     }
 
     /// Copy `count` elements starting `start` bars back from the newest, oldest first.
-    fn copy_series(&mut self, host: &mut dyn Host, a: &[Value], get: fn(&Bar) -> Value) -> R<Value> {
+    pub(super) fn copy_series(&mut self, host: &mut dyn Host, a: &[Value], get: fn(&Bar) -> Value) -> R<Value> {
         let sym = self.sym_arg(a.first());
         let tf = self.tf_arg(a.get(1));
         let start = arg_i(a, 2, 0);
@@ -148,7 +164,7 @@ impl Instance {
         }
     }
 
-    fn bar_at(&self, host: &mut dyn Host, a: &[Value]) -> Option<Bar> {
+    pub(super) fn bar_at(&self, host: &mut dyn Host, a: &[Value]) -> Option<Bar> {
         let sym = self.sym_arg(a.first());
         let tf = self.tf_arg(a.get(1));
         let shift = arg_i(a, 2, 0);
@@ -164,7 +180,7 @@ impl Instance {
         .flatten()
     }
 
-    fn add_handle(&mut self, h: Handle) -> Value {
+    pub(super) fn add_handle(&mut self, h: Handle) -> Value {
         self.handles.push(Some(h));
         vi(self.handles.len() as i64 - 1)
     }
@@ -185,6 +201,11 @@ impl Instance {
             Some(Handle::Builtin { kind, params, symbol, tf }) => {
                 let (k, p, s, t) = (*kind, *params, symbol.clone(), *tf);
                 self.with_bars(host, &s, t, |bars| script_buffers(k, &p, bars))
+                    .and_then(|mut v| if buf < v.len() { Some(v.swap_remove(buf)) } else { None })
+            }
+            Some(Handle::Ext { kind, params, symbol, tf }) => {
+                let (k, p, s, t) = (*kind, params.clone(), symbol.clone(), *tf);
+                self.with_bars(host, &s, t, |bars| crate::indicators_ext::compute(k, &p, bars))
                     .and_then(|mut v| if buf < v.len() { Some(v.swap_remove(buf)) } else { None })
             }
             Some(Handle::Custom { inst: Some(child), symbol, tf }) => {
@@ -250,6 +271,50 @@ impl Instance {
                 self.assign(&target, Value::str(&new), host)?;
                 return Ok(ret);
             }
+            "StringSetCharacter" | "StringInit" | "StringFill" => {
+                let target = args.first().ok_or_else(|| self.err("wrong parameters count"))?.clone();
+                let a = self.eval_args(args, host)?;
+                let s = arg_s(&a, 0);
+                let (new, ret) = match name {
+                    "StringSetCharacter" => {
+                        let pos = arg_i(&a, 1, 0).max(0) as usize;
+                        let ch = char::from_u32(arg_i(&a, 2, 0) as u32).unwrap_or('\0');
+                        let mut cs: Vec<char> = s.chars().collect();
+                        if pos < cs.len() {
+                            cs[pos] = ch;
+                        } else if pos == cs.len() {
+                            cs.push(ch);
+                        } else {
+                            return Ok(vb(false));
+                        }
+                        (cs.into_iter().filter(|c| *c != '\0').collect::<String>(), vb(true))
+                    }
+                    "StringInit" => {
+                        let n = arg_i(&a, 1, 0).max(0) as usize;
+                        let ch = char::from_u32(arg_i(&a, 2, 0) as u32).unwrap_or('\0');
+                        (if ch == '\0' { String::new() } else { std::iter::repeat(ch).take(n).collect() }, vb(true))
+                    }
+                    _ => {
+                        let ch = char::from_u32(arg_i(&a, 1, 0) as u32).unwrap_or(' ');
+                        (std::iter::repeat(ch).take(s.chars().count()).collect(), vb(true))
+                    }
+                };
+                self.assign(&target, Value::str(&new), host)?;
+                return Ok(ret);
+            }
+            _ if super::extra::out_params(name, args.len()).is_some() => {
+                let outs = super::extra::out_params(name, args.len()).unwrap();
+                let a = self.eval_args(args, host)?;
+                let (ret, vals) = self.call_out(name, &a, host)?;
+                for (k, v) in vals {
+                    if let Some(i) = outs.get(k) {
+                        if let Some(e) = args.get(*i) {
+                            self.assign(e, v, host)?;
+                        }
+                    }
+                }
+                return Ok(ret);
+            }
             "SymbolInfoDouble" | "SymbolInfoInteger" if args.len() == 3 => {
                 let a = self.eval_args(&args[..2], host)?;
                 let v = self.call_builtin_values(name, &a, host)?;
@@ -263,7 +328,7 @@ impl Instance {
         self.call_builtin_values(name, &a, host)
     }
 
-    fn call_builtin_values(&mut self, name: &str, a: &[Value], host: &mut dyn Host) -> R<Value> {
+    pub(super) fn call_builtin_values(&mut self, name: &str, a: &[Value], host: &mut dyn Host) -> R<Value> {
         Ok(match name {
             "__comma" => a.last().cloned().unwrap_or(Value::Void),
             // ---------- output ----------
@@ -1092,7 +1157,7 @@ impl Instance {
             "BarsCalculated" => {
                 let h = arg_i(a, 0, -1);
                 let st = match self.handles.get(h.max(0) as usize).and_then(|x| x.as_ref()) {
-                    Some(Handle::Builtin { symbol, tf, .. }) | Some(Handle::Custom { symbol, tf, .. }) => Some((symbol.clone(), *tf)),
+                    Some(Handle::Builtin { symbol, tf, .. }) | Some(Handle::Custom { symbol, tf, .. }) | Some(Handle::Ext { symbol, tf, .. }) => Some((symbol.clone(), *tf)),
                     None => None,
                 };
                 match st {
@@ -1385,7 +1450,10 @@ impl Instance {
             "GlobalVariableGet" => vd(host.global_vars().get(&arg_s(a, 0)).copied().unwrap_or(0.0)),
             "GlobalVariableCheck" => vb(host.global_vars().contains_key(&arg_s(a, 0))),
             "GlobalVariableDel" => vb(host.global_vars().remove(&arg_s(a, 0)).is_some()),
-            _ => return Err(self.err(format!("'{}' - function is not available in this terminal", name))),
+            _ => match self.call_extra(name, a, host)? {
+                Some(v) => v,
+                None => return Err(self.err(format!("'{}' - function is not available in this terminal", name))),
+            },
         })
     }
 

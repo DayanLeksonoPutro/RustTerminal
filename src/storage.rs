@@ -77,13 +77,35 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<ProgramFile>) {
 }
 
 /// Resolve `#include` paths against the Include folder (and the program's own folder).
+/// Decode a source file the way MetaEditor saves them: UTF-16 LE/BE with BOM, UTF-8
+/// (with or without BOM), otherwise Windows-1252.
+pub fn decode_source(b: &[u8]) -> String {
+    if b.len() >= 2 && b[0] == 0xFF && b[1] == 0xFE {
+        let u: Vec<u16> = b[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        return String::from_utf16_lossy(&u);
+    }
+    if b.len() >= 2 && b[0] == 0xFE && b[1] == 0xFF {
+        let u: Vec<u16> = b[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        return String::from_utf16_lossy(&u);
+    }
+    let b = b.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(b);
+    match std::str::from_utf8(b) {
+        Ok(s) => s.to_string(),
+        Err(_) => b.iter().map(|&c| c as char).collect(),
+    }
+}
+
+pub fn read_source(p: &Path) -> std::io::Result<String> {
+    std::fs::read(p).map(|b| decode_source(&b))
+}
+
 pub fn include_loader(base: Option<PathBuf>) -> impl Fn(&str) -> Option<String> {
     move |path: &str| {
         let mut cands = vec![mql_dir().join("Include").join(path)];
         if let Some(b) = &base {
             cands.insert(0, b.join(path));
         }
-        cands.into_iter().find_map(|p| std::fs::read_to_string(p).ok())
+        cands.into_iter().find_map(|p| read_source(&p).ok())
     }
 }
 
