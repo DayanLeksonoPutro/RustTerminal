@@ -1,24 +1,33 @@
 # Rust Terminal
 
-A cross-platform (Windows / macOS / Linux) trading terminal written in Rust with
-[egui](https://github.com/emilk/egui). It has charts, built-in indicators, a simulated demo
-account, a strategy tester, and a built-in **MQL5 interpreter** that runs custom indicators,
-expert advisors (EAs) and scripts straight from `.mq5` source code.
+A cross-platform (macOS / Windows / Linux, Android build available) trading terminal written
+in Rust with [egui](https://github.com/emilk/egui). It has charts, built-in indicators, a
+demo account, a strategy tester, and a built-in **MQL5 interpreter** that runs custom
+indicators, expert advisors (EAs) and scripts straight from `.mq5` source code, including the
+MetaTrader 5 Standard Library (`Trade.mqh`, `Indicators/*`, `Arrays/*`, ...).
 
 ![Rust Terminal screenshot](docs/screenshot.png)
 
-> **Note:** Prices and accounts are **simulated**. Rust Terminal does not connect to a real
-> broker and cannot place real trades.
+> **Note:** Accounts and order execution are **simulated** (paper trading). Prices are real
+> where you import history (CSV or straight from your MetaTrader 5) and for crypto symbols
+> with live public market data; everything else is simulated.
 
 ## Features
 
-- **Market Watch**: 9 simulated symbols (EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD,
-  NZDUSD, XAUUSD, BTCUSD) with a live tick generator, bid/ask, spread and daily change.
+- **Market Watch**: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD, XAUUSD, BTCUSD,
+  plus every symbol exported from your MetaTrader 5 (with the broker's digits, contract size
+  and tick value). BTCUSD and other crypto symbols get **live prices** from public market data.
+- **Real history**: File > History Data imports CSV (MetaTrader 5/4 exports, Dukascopy,
+  unix-time CSV) or everything the bundled `RustTerminal_Export` script exports from your
+  MetaTrader 5. Higher timeframes are built from lower ones.
 - **Charts**: candles, bars or line, all timeframes from M1 to MN1, several chart tabs, zoom,
   chart shift, crosshair and one-click trading (BUY/SELL panel).
-- **16 built-in indicators**: Moving Average, Bollinger Bands, Envelopes, Ichimoku, Parabolic
-  SAR, Alligator, Fractals, MACD, RSI, Stochastic, ATR, CCI, Momentum, ADX, Williams' %R,
-  Volumes.
+- **38 built-in indicators** for programs (iMA, iRSI, iMACD, iBands, iStochastic, iATR, iCCI,
+  iADX, iADXWilder, iSAR, iIchimoku, iAlligator, iGator, iFractals, iAO, iAC, iDEMA, iTEMA,
+  iTriX, iAMA, iFrAMA, iVIDyA, iOsMA, iMFI, iOBV, iAD, iChaikin, iForce, iRVI, iStdDev,
+  iDeMarker, iBearsPower, iBullsPower, iBWMFI, iEnvelopes, iMomentum, iWPR, iVolumes); their
+  values match the platform's reference implementations bar for bar (see MECHANICS.md).
+  16 of them can also be added to charts from the Navigator.
 - **Drawing objects**: horizontal/vertical lines, trend lines, Fibonacci retracement,
   rectangles, text and arrows.
 - **Simulated demo account**: market and pending orders, stop loss / take profit, margin,
@@ -29,7 +38,8 @@ expert advisors (EAs) and scripts straight from `.mq5` source code.
   `OnTick`, `OnTimer`, `OnTrade`, …) and scripts (`OnStart`) on the live chart.
 - **Strategy Tester**: back-test EAs with "every tick", "1 minute OHLC" or "open prices only"
   modelling, and get a report with net profit, profit factor, expected payoff, drawdown and
-  trade counts.
+  trade counts. With imported M1 history the test runs on real minutes and EAs can read any
+  timeframe.
 
 ## Getting started
 
@@ -57,7 +67,23 @@ Other commands:
 cargo build                          # debug build
 cargo test                           # engine tests
 cargo run -- --screenshot out.png    # open the window, save a screenshot, then exit
+tools/macos/bundle.sh                # macOS: "Rust Terminal.app" + .dmg (UNIVERSAL=1 for Intel too)
+tools/android/build.sh               # Android: signed release APK (needs SDK, NDK, cargo-apk)
 ```
+
+Compatibility checks against a real MQL5 folder (for example your MetaTrader 5 data folder):
+
+```sh
+CORPUS="/path/to/MQL5" cargo test corpus -- --ignored --nocapture                # compile + run every program
+CORPUS="/path/to/MQL5" cargo test reference_indicators -- --ignored --nocapture  # indicator values vs. reference
+```
+
+### Real data from MetaTrader 5
+
+1. In Rust Terminal: File > History Data > **Install Export Script** (copies
+   `RustTerminal_Export.mq5` into every MetaTrader 5 found, including Wine on macOS).
+2. In MetaTrader 5: Navigator > Scripts > RustTerminal_Export, choose symbols/timeframe/days.
+3. In Rust Terminal: File > **Import from MetaTrader 5**.
 
 ## Writing your own programs
 
@@ -124,28 +150,41 @@ int OnCalculate(const int rates_total, const int prev_calculated, const int begi
 
 ### What the MQL5 engine supports
 
-- Inputs, enums, structs, arrays, functions, `#property`, `#define` and `#include`
-- Indicator buffers and plots, `CopyBuffer` / `CopyClose` / … , `ArraySetAsSeries`
+- Classes and structs with methods, constructors/initializer lists, destructors, inheritance,
+  virtual methods, operators, pointers (`new`/`delete`), static members, interfaces, unions,
+  function and class templates, typedefs and function pointers
+- Preprocessor: `#define` with parameters, `#` and `##`, `#ifdef`/`#ifndef`/`#else`,
+  `#include` (relative and library paths), `__FUNCTION__`, `__LINE__`, ...
+- The real MetaTrader 5 Standard Library when its `Include` folder is present (copy your
+  terminal's `MQL5/Include` into the data folder); built-in CTrade/CPositionInfo/... otherwise
+- Indicator buffers and plots, `CopyBuffer` / `CopyRates` / ... by position or by time,
+  `iCustom`, `IndicatorCreate`, files (`FileOpen`, CSV/TXT/BIN), global variables, ~600 constants
 - Trading functions, positions, orders and history from EAs and scripts
-- Chart objects from code
 - Runtime errors such as "zero divide" and "array out of range" stop the program instead of
   crashing the terminal, and an endless-loop guard stops runaway handlers
 
-Current limits:
+On the 255 programs of a MetaTrader 5 installation (MetaQuotes examples, Standard Library
+tests and user EAs) 231 compile and 225 run. Current limits:
 
-- `class` and templates are not supported yet (they give a clear compile error).
+- `matrix`/`vector` types, OpenCL and DirectX are not supported.
 - Compiled `.ex5` files cannot run: the format is encrypted. Use the `.mq5` source.
 
 ## Project layout
 
 ```
 src/
-  main.rs         entry point and window setup
+  lib.rs          modules, desktop start, Android entry (android_main)
+  main.rs         desktop entry point
   app.rs          app state and update loop
   ui.rs           menus, toolbars, Market Watch, Navigator, Toolbox
   chart.rs        chart drawing, indicator plots, objects
-  indicators.rs   the 16 built-in indicators
-  market.rs       simulated symbols, ticks and bar history
+  indicators.rs   the 16 chart indicators
+  indicators_ext.rs  more i-functions (iDEMA, iAO, ...)
+  mt5ind.rs       indicator values for programs, following the reference algorithms
+  market.rs       symbols, ticks and bar history (simulated, real history or live)
+  history.rs      CSV import, timeframes, MetaTrader 5 export/import
+  feed.rs         live public market data (background thread)
+  data_ui.rs      History Data window
   account.rs      simulated account: orders, positions, margin, SL/TP
   editor.rs       code editor and compiler
   tester.rs       strategy tester engine
@@ -162,8 +201,9 @@ agents.
 
 ## Roadmap
 
-- `class` and template support, so more EAs from the internet run unchanged
-- Live prices from a free public feed (for example crypto) as an alternative to the simulator
+- Real order execution (a bridge to MetaTrader 5 or a broker API)
+- A touch layout for phones (the Android build uses the desktop layout)
+- `matrix`/`vector` types
 
 ## Contributing
 

@@ -109,7 +109,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
         let (tl, tc) = (line, col);
         if c == '#' && line_start {
             let start = i + 1;
-            let mut text = String::new();
+            let mut text;
             // support line continuation with backslash
             loop {
                 while i < chars.len() && chars[i] != '\n' {

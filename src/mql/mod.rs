@@ -9,5 +9,4 @@ pub mod lexer;
 pub mod parser;
 
 pub use ast::{Program, ProgramKind};
-pub use interp::{Host, Instance, TradeOp};
-pub use lexer::CompileError;
+pub use interp::Instance;

@@ -100,3 +100,21 @@ The exception is AMA: the reference example never sets its slow smoothing consta
 
 Not verified: whether CopyBuffer applies a plot shift (iMA ma_shift, Alligator shifts); this
 build returns unshifted values. BW MFI's live-bar time correction is not applied.
+
+## Data sources
+
+- Imported history: `<data>/history/<SYMBOL>/<TF>.csv`. A missing timeframe is built from the
+  nearest smaller stored one (weeks start Sunday 00:00, months on the 1st, as in the platform).
+- Broker symbol properties (digits, contract size, volume limits, spread, currencies, tick
+  value) come from the export script. Profit for symbols whose profit currency is not USD and
+  whose base is not USD uses the exported tick value (a fixed rate from export time).
+- Live: crypto symbols (BTCUSD, ETHUSD, ...) map to USDT pairs of public market data; 1000 bars
+  per timeframe are loaded, then best bid/ask is polled every second.
+
+## Strategy tester with real minutes
+
+With stored M1 history the tested timeframe is built from minutes. "1 minute OHLC" and "every
+tick" generate ticks from every minute (open, low/high, high/low, close; every tick adds
+interpolated points); "open prices only" sends one tick per tested bar. Programs can read any
+timeframe, built from the minutes seen so far. Without M1 history the tester uses the bars of the
+tested timeframe as before (lower timeframes unavailable).
