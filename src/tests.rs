@@ -309,6 +309,9 @@ fn corpus() {
                 let key = first.split(" (line").next().unwrap_or("").to_string();
                 let key = key.split(" - ").last().unwrap_or(&key).to_string();
                 println!("COMPILE FAIL {}: {}", rel, first);
+                for x in &e {
+                    println!("ERR {}", x.msg);
+                }
                 errs.entry(format!("compile: {}", key)).or_default().push(rel);
                 continue;
             }
@@ -352,6 +355,15 @@ fn corpus() {
                         Some(e) => Err(e.clone()),
                         None => Ok(()),
                     }
+                }
+                crate::mql::ProgramKind::Script if std::env::var("CORPUS_SCRIPTS").is_ok() => {
+                    let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), prog_loader);
+                    run.host.view = bars.clone();
+                    let r = run.inst.call_event("OnStart", vec![], &mut run.host).map(|_| ()).map_err(|e| run.inst.fmt_err(&e));
+                    for l in &run.host.log {
+                        println!("LOG {}", l);
+                    }
+                    r
                 }
                 _ => Ok(()),
             }

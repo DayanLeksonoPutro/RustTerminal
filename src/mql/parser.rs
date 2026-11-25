@@ -13,6 +13,7 @@ pub fn compile(file_name: &str, src: &str, loader: Loader) -> Result<Program, Ve
     let lexed = lex(src).map_err(|e| vec![e])?;
     let mut p = Parser::new(file_name, lexed.line_comments);
     let toks = p.preprocess(lexed.tokens, loader, 0).map_err(|e| vec![e])?;
+    p.predeclare(&toks);
     p.toks = toks;
     p.pos = 0;
     if let Err(e) = p.parse_top() {
@@ -36,12 +37,16 @@ struct Parser {
     counter: i64,
     included: HashSet<String>,
     cur_dir: String,
+    files: Vec<String>,
+    site_file: u16,
+    stmt_file: u16,
     type_names: HashSet<String>,
     enum_types: HashSet<String>,
     structs: HashMap<Sym, Rc<StructDef>>,
     classes: HashMap<Sym, ClassInfo>,
     generics: HashSet<String>,
     template_classes: HashSet<String>,
+    aliases: HashMap<String, Ty>,
     cur_func: String,
     next_id: u32,
     props: Properties,
@@ -83,12 +88,16 @@ impl Parser {
             counter: 0,
             included: HashSet::new(),
             cur_dir: String::new(),
+            files: vec![file_name.to_string()],
+            site_file: 0,
+            stmt_file: 0,
             type_names,
             enum_types: HashSet::new(),
             structs,
             classes: HashMap::new(),
             generics: HashSet::new(),
             template_classes: HashSet::new(),
+            aliases: HashMap::new(),
             cur_func: String::new(),
             next_id: 1,
             props: Properties::default(),
@@ -111,6 +120,9 @@ impl Parser {
                 ProgramKind::Expert
             } else if has("OnStart") {
                 ProgramKind::Script
+            } else if has("OnInit") || has("OnTimer") || has("OnChartEvent") || has("OnTrade") || has("OnTradeTransaction") || has("OnBookEvent") {
+                // an expert advisor does not need OnTick
+                ProgramKind::Expert
             } else {
                 ProgramKind::Unknown
             }
@@ -128,6 +140,7 @@ impl Parser {
             classes: self.classes,
             interner: self.interner,
             warnings: self.warnings,
+            files: self.files,
         }
     }
 
@@ -199,8 +212,12 @@ impl Parser {
                         i + 1
                     };
                     let (line, col) = (t.line, t.col);
+                    self.site_file = t.file;
                     let exp = self.expand_list(&toks[i..end], &HashSet::new(), line, col, 0)?;
-                    out.extend(exp);
+                    out.extend(exp.into_iter().map(|mut x| {
+                        x.file = t.file;
+                        x
+                    }));
                     i = end;
                 }
                 _ => {
@@ -236,7 +253,7 @@ impl Parser {
             }
             _ => return None,
         };
-        Some(Token { tok, line, col })
+        Some(Token { tok, line, col, file: self.site_file })
     }
 
     /// Fully macro-expand a token list. `hide` holds macros being expanded (no recursion).
@@ -253,6 +270,7 @@ impl Parser {
                     let mut t = toks[i].clone();
                     t.line = line;
                     t.col = col;
+                    t.file = self.site_file;
                     out.push(t);
                     i += 1;
                     continue;
@@ -269,6 +287,7 @@ impl Parser {
                     let mut t = toks[i].clone();
                     t.line = line;
                     t.col = col;
+                    t.file = self.site_file;
                     out.push(t);
                     i += 1;
                     continue;
@@ -349,24 +368,30 @@ impl Parser {
                     let l = p.to_ascii_lowercase();
                     builtins::NATIVE_HEADERS.iter().any(|h| l == *h || l.ends_with(&format!("/{}", h)))
                 };
-                if cands.iter().any(|c| native(c)) {
-                    return Ok(()); // classes built into the engine
-                }
+                // the real header is used when present; otherwise the engine's own classes
                 let found = cands.iter().find_map(|c| loader(c).map(|src| (c.clone(), src)));
+                if found.is_none() && cands.iter().any(|c| native(c)) {
+                    return Ok(());
+                }
                 match found {
                     Some((resolved, src)) => {
                         let key = resolved.to_ascii_lowercase();
                         if !self.included.insert(key) {
                             return Ok(()); // every include file is read once
                         }
-                        let lexed = lex(&src).map_err(|e| err(format!("{}: {}", resolved, e.msg)))?;
+                        let mut lexed = lex(&src).map_err(|e| err(format!("{}: {}", resolved, e.msg)))?;
+                        self.files.push(resolved.clone());
+                        let fidx = (self.files.len() - 1).min(u16::MAX as usize - 1) as u16;
+                        for tk in lexed.tokens.iter_mut() {
+                            tk.file = fidx;
+                        }
                         let saved = std::mem::replace(&mut self.file_name, resolved.clone());
                         let dir = resolved.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
                         let saved_dir = std::mem::replace(&mut self.cur_dir, dir);
                         let inner = self.preprocess(lexed.tokens, loader, depth + 1);
                         self.file_name = saved;
                         self.cur_dir = saved_dir;
-                        out.extend(inner.map_err(|e| err(format!("{} ({}): {}", resolved, e.line, e.msg)))?);
+                        out.extend(inner.map_err(|e| if e.msg.contains(".mqh") { e } else { err(format!("{} ({}): {}", resolved, e.line, e.msg)) })?);
                     }
                     None => return Err(err(format!("can't open \"{}\" include file", path))),
                 }
@@ -426,6 +451,69 @@ impl Parser {
         }
     }
 
+    /// Class and struct names are known before parsing, so a class may refer to one
+    /// defined later in the file.
+    fn predeclare(&mut self, toks: &[Token]) {
+        for w in toks.windows(2) {
+            if let (Tok::Ident(k), Tok::Ident(n)) = (&w[0].tok, &w[1].tok) {
+                if (k == "class" || k == "struct" || k == "interface") && !self.type_names.contains(n) {
+                    let sym = self.interner.intern(n);
+                    self.type_names.insert(n.clone());
+                    self.structs.insert(sym, Rc::new(StructDef { name: sym, fields: vec![] }));
+                    self.classes.insert(sym, ClassInfo { is_class: k != "struct", ..Default::default() });
+                }
+            }
+        }
+        // template classes: `template<...> class X`
+        for i in 0..toks.len() {
+            if toks[i].tok == Tok::Ident("template".into()) {
+                let mut j = i + 1;
+                let mut depth = 0;
+                while j < toks.len() {
+                    match &toks[j].tok {
+                        Tok::Punct("<") => depth += 1,
+                        Tok::Punct(">") => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                if let (Some(Tok::Ident(k)), Some(Tok::Ident(n))) = (toks.get(j + 1).map(|t| &t.tok), toks.get(j + 2).map(|t| &t.tok)) {
+                    if k == "class" || k == "struct" || k == "interface" {
+                        self.template_classes.insert(n.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    /// `typedef RetType (*Name)(params);` (function pointer) or `typedef Type Name;`.
+    fn parse_typedef(&mut self) -> Result<(), CompileError> {
+        self.bump();
+        let (ty, _) = self.parse_type()?;
+        if self.eat_punct("(") {
+            self.expect("*")?;
+            let n = self.ident()?;
+            self.expect(")")?;
+            while !self.is_punct(";") && !matches!(self.peek(), Tok::Eof) {
+                self.bump();
+            }
+            self.eat_punct(";");
+            self.type_names.insert(n.clone());
+            self.aliases.insert(n, Ty::Any);
+            return Ok(());
+        }
+        let n = self.ident()?;
+        self.eat_punct(";");
+        self.type_names.insert(n.clone());
+        self.aliases.insert(n, ty);
+        Ok(())
+    }
+
     // ---------- token helpers ----------
 
     fn peek(&self) -> &Tok {
@@ -461,7 +549,10 @@ impl Parser {
     }
     fn err_here(&self, msg: String) -> CompileError {
         let t = self.tok();
-        CompileError { line: t.line, col: t.col, msg }
+        match self.files.get(t.file as usize) {
+            Some(f) if t.file > 0 => CompileError { line: t.line, col: t.col, msg: format!("{} ({}): {}", f, t.line, msg) },
+            _ => CompileError { line: t.line, col: t.col, msg },
+        }
     }
     fn tok_text(&self) -> String {
         match self.peek() {
@@ -528,6 +619,8 @@ impl Parser {
             _ => {
                 if self.generics.contains(&name) {
                     Ty::Any
+                } else if let Some(t) = self.aliases.get(&name) {
+                    t.clone()
                 } else if name.starts_with("ENUM_") || self.enum_types.contains(&name) {
                     // allow `const` after type etc.
                     return Ok((Ty::Int, Some(name)));
@@ -582,6 +675,48 @@ impl Parser {
         }
     }
 
+    /// Size in bytes of a type, as `sizeof` reports it.
+    fn type_size(&self, t: &str) -> i64 {
+        match t {
+            "bool" | "char" | "uchar" => 1,
+            "short" | "ushort" => 2,
+            "int" | "uint" | "color" | "float" => 4,
+            "long" | "ulong" | "datetime" | "double" => 8,
+            "string" => 12,
+            _ if t.starts_with("ENUM_") || self.enum_types.contains(t) => 4,
+            _ => match self.interner.get(t).and_then(|s| self.structs.get(&s)) {
+                Some(d) => d.fields.iter().map(|(_, ty, dims)| {
+                    let one = match ty {
+                        Ty::Bool => 1,
+                        Ty::Int => 4,
+                        Ty::Double => 8,
+                        Ty::Str => 12,
+                        Ty::Struct(s) => self.type_size(self.interner.name(*s)),
+                        _ => 8,
+                    };
+                    let n: i64 = dims.iter().map(|d| match d {
+                        Some(Expr::Int(k)) => *k,
+                        _ => 1,
+                    }).product();
+                    one * n.max(1)
+                }).sum(),
+                None => 8,
+            },
+        }
+    }
+
+    fn var_size(&self, v: Sym) -> i64 {
+        let ty = self.globals.iter().rev().find(|g| g.name == v).map(|g| g.ty.clone());
+        match ty {
+            Some(Ty::Struct(s)) => self.type_size(self.interner.name(s)),
+            Some(Ty::Double) => 8,
+            Some(Ty::Str) => 12,
+            Some(Ty::Bool) => 1,
+            Some(Ty::Int) => 4,
+            _ => 8,
+        }
+    }
+
     fn is_class_name(&self, name: &str) -> bool {
         self.interner.get(name).is_some_and(|s| self.classes.contains_key(&s))
     }
@@ -605,8 +740,14 @@ impl Parser {
             }
         }
         self.expect(">")?;
+        let at_ctor = match self.peek().clone() {
+            Tok::Ident(n) => self.is_class_name(&n) && self.is_ctor_def(),
+            _ => false,
+        };
         let r = if self.is_ident("class") || self.is_ident("struct") || self.is_ident("interface") {
             self.parse_class(true)
+        } else if at_ctor {
+            self.parse_ctor_def()
         } else {
             self.parse_global_decl_or_func()
         };
@@ -686,7 +827,11 @@ impl Parser {
                 self.parse_class(false)?;
                 continue;
             }
-            if self.is_ident("typedef") || self.is_ident("friend") {
+            if self.is_ident("typedef") {
+                self.parse_typedef()?;
+                continue;
+            }
+            if self.is_ident("friend") {
                 while !self.is_punct(";") && !matches!(self.peek(), Tok::Eof) {
                     self.bump();
                 }
@@ -822,24 +967,9 @@ impl Parser {
                 Tok::Ident(s) if s == "enum" => self.parse_enum()?,
                 Tok::Ident(s) if s == "struct" || s == "class" || s == "interface" => self.parse_class(false)?,
                 Tok::Ident(s) if s == "template" => self.parse_template()?,
-                Tok::Ident(s) if s == "typedef" => {
-                    while !self.is_punct(";") && !matches!(self.peek(), Tok::Eof) {
-                        self.bump();
-                    }
-                }
+                Tok::Ident(s) if s == "typedef" => self.parse_typedef()?,
                 Tok::Ident(s) if self.is_class_name(&s) && matches!(self.peek_at(1), Tok::Punct("::") | Tok::Punct("<")) && self.is_ctor_def() => {
-                    // out-of-class constructor / destructor: CFoo::CFoo(...) / CFoo::~CFoo()
-                    let line = self.tok().line;
-                    self.bump();
-                    self.skip_template_args();
-                    self.expect("::")?;
-                    let dtor = self.eat_punct("~");
-                    let n = self.ident()?;
-                    self.expect("(")?;
-                    let params = self.parse_params()?;
-                    let cls = self.interner.intern(&s);
-                    let fname = if dtor { format!("~{}", n) } else { n };
-                    self.method_tail(cls, &fname, Ty::Void, params, line)?;
+                    self.parse_ctor_def()?;
                 }
                 Tok::Ident(s) if s == "extern" => {
                     self.bump();
@@ -931,6 +1061,21 @@ impl Parser {
         }
     }
 
+    /// Out-of-class constructor / destructor: `CFoo::CFoo(...)` / `CFoo::~CFoo()`.
+    fn parse_ctor_def(&mut self) -> Result<(), CompileError> {
+        let line = self.tok().line;
+        let s = self.ident()?;
+        self.skip_template_args();
+        self.expect("::")?;
+        let dtor = self.eat_punct("~");
+        let n = self.ident()?;
+        self.expect("(")?;
+        let params = self.parse_params()?;
+        let cls = self.interner.intern(&s);
+        let fname = if dtor { format!("~{}", n) } else { n };
+        self.method_tail(cls, &fname, Ty::Void, params, line)
+    }
+
     /// At `CFoo::CFoo(` or `CFoo<T>::~CFoo(`?
     fn is_ctor_def(&self) -> bool {
         let mut i = 1;
@@ -976,6 +1121,12 @@ impl Parser {
                 self.skip_template_args();
                 if self.eat_punct("::") {
                     let cls = self.interner.intern(&cname);
+                    if self.eat_punct("~") {
+                        let n = self.ident()?;
+                        self.expect("(")?;
+                        let params = self.parse_params()?;
+                        return self.method_tail(cls, &format!("~{}", n), Ty::Void, params, line);
+                    }
                     if self.is_ident("operator") {
                         self.bump();
                         let op = self.parse_operator_name()?;
@@ -1162,7 +1313,7 @@ impl Parser {
     }
 
     fn mk(&self, kind: StmtKind, line: u32, col: u32) -> Stmt {
-        Stmt { kind, line, col }
+        Stmt { kind, line, col, file: self.stmt_file }
     }
 
     fn looks_like_decl(&self) -> bool {
@@ -1185,6 +1336,7 @@ impl Parser {
 
     fn parse_stmt(&mut self) -> Result<Stmt, CompileError> {
         let (line, col) = (self.tok().line, self.tok().col);
+        self.stmt_file = self.tok().file;
         if self.eat_punct("{") {
             let b = self.parse_block_body()?;
             return Ok(self.mk(StmtKind::Block(b), line, col));
@@ -1453,10 +1605,15 @@ impl Parser {
                 // cast?
                 if let Tok::Ident(n) = self.peek_at(1).clone() {
                     let is_type = self.type_names.contains(&n) || n.starts_with("ENUM_");
-                    let ptr_cast = matches!(self.peek_at(2), Tok::Punct("*")) && matches!(self.peek_at(3), Tok::Punct(")"));
+                    let ptr_cast = matches!(self.peek_at(2), Tok::Punct("*") | Tok::Punct("&")) && matches!(self.peek_at(3), Tok::Punct(")"));
                     if is_type && (matches!(self.peek_at(2), Tok::Punct(")")) || ptr_cast) {
                         self.bump();
                         let (ty, _) = self.parse_type()?;
+                        if self.eat_punct("&") {
+                            // reference cast: same value
+                            self.expect(")")?;
+                            return self.parse_unary();
+                        }
                         self.expect(")")?;
                         let e = self.parse_unary()?;
                         return Ok(Expr::Cast(ty, Box::new(e)));
@@ -1522,12 +1679,33 @@ impl Parser {
                 self.expect(")")?;
                 Ok(e)
             }
-            Tok::Punct("::") => self.parse_primary(),
+            Tok::Punct("::") => match self.parse_primary()? {
+                Expr::Call(f, args) => Ok(Expr::GlobalCall(f, args)),
+                other => Ok(other),
+            },
             Tok::Ident(name) => match name.as_str() {
                 "true" => Ok(Expr::Bool(true)),
                 "false" => Ok(Expr::Bool(false)),
                 "NULL" => Ok(Expr::Null),
                 "__FUNCTION__" | "__FUNCSIG__" => Ok(Expr::Str(Rc::from(self.cur_func.as_str()))),
+                "sizeof" => {
+                    self.expect("(")?;
+                    let size = match self.peek().clone() {
+                        Tok::Ident(t) if (self.type_names.contains(&t) || t.starts_with("ENUM_")) && matches!(self.peek_at(1), Tok::Punct(")")) => {
+                            self.bump();
+                            self.type_size(&t)
+                        }
+                        _ => {
+                            let e = self.parse_expr()?;
+                            match e {
+                                Expr::Var(v) => self.var_size(v),
+                                _ => 8,
+                            }
+                        }
+                    };
+                    self.expect(")")?;
+                    Ok(Expr::Int(size))
+                }
                 "new" => {
                     let n = self.ident()?;
                     let sym = self.interner.intern(&n);
@@ -1622,7 +1800,7 @@ struct Cond {
 fn predefined_macros() -> HashMap<String, Macro> {
     let mut m = HashMap::new();
     for n in ["__MQL5__", "__MQL__", "_RELEASE"] {
-        m.insert(n.to_string(), Macro { params: None, body: vec![Token { tok: Tok::Int(1), line: 0, col: 0 }] });
+        m.insert(n.to_string(), Macro { params: None, body: vec![Token { tok: Tok::Int(1), line: 0, col: 0, file: 0 }] });
     }
     m
 }
@@ -1688,7 +1866,7 @@ fn substitute(params: &[String], body: &[Token], raw: &[Vec<Token>], expanded: &
         if t.tok == Tok::Punct("#") {
             if let Some(k) = body.get(i + 1).and_then(|n| pidx(&n.tok)) {
                 let text: Vec<String> = raw[k].iter().map(|x| token_text(&x.tok)).collect();
-                out.push(Token { tok: Tok::Str(text.join(" ")), line, col });
+                out.push(Token { tok: Tok::Str(text.join(" ")), line, col, file: 0 });
                 i += 2;
                 continue;
             }
@@ -1716,6 +1894,7 @@ fn substitute(params: &[String], body: &[Token], raw: &[Vec<Token>], expanded: &
                 }
                 x.line = line;
                 x.col = col;
+                x.file = u16::MAX;
                 out.push(x);
             }
             out.extend(rest);
@@ -1735,6 +1914,7 @@ fn substitute(params: &[String], body: &[Token], raw: &[Vec<Token>], expanded: &
         let mut c = t.clone();
         c.line = line;
         c.col = col;
+        c.file = u16::MAX;
         out.push(c);
         i += 1;
     }

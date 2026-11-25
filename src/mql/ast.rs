@@ -108,6 +108,8 @@ pub enum Expr {
     Delete(Box<Expr>),
     /// `CBase::Method(args)`: a call that skips virtual dispatch
     ScopedCall(Sym, Sym, Vec<Expr>),
+    /// `::Func(args)`: a global function even inside a class with a method of that name
+    GlobalCall(Sym, Vec<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +129,7 @@ pub struct Stmt {
     pub kind: StmtKind,
     pub line: u32,
     pub col: u32,
+    pub file: u16,
 }
 
 #[derive(Clone, Debug)]
@@ -263,6 +266,8 @@ pub struct Program {
     pub classes: HashMap<Sym, ClassInfo>,
     pub interner: Interner,
     pub warnings: Vec<String>,
+    /// source files: [0] is the program, the rest are include files
+    pub files: Vec<String>,
 }
 
 impl Program {

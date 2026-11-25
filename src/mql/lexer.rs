@@ -19,6 +19,8 @@ pub struct Token {
     pub tok: Tok,
     pub line: u32,
     pub col: u32,
+    /// source file index (0 = the program itself, others are include files)
+    pub file: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +128,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
             if let Some(p) = find_comment(&t) {
                 t.truncate(p);
             }
-            out.push(Token { tok: Tok::Directive(t.trim().to_string()), line: tl, col: tc });
+            out.push(Token { tok: Tok::Directive(t.trim().to_string()), line: tl, col: tc, file: 0 });
             continue;
         }
         line_start = false;
@@ -144,7 +146,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
             }
             let v = if c == 'C' { parse_color_literal(&body) } else { parse_date_literal(&body) };
             match v {
-                Some(v) => out.push(Token { tok: Tok::Int(v), line: tl, col: tc }),
+                Some(v) => out.push(Token { tok: Tok::Int(v), line: tl, col: tc, file: 0 }),
                 None => return Err(CompileError { line: tl, col: tc, msg: format!("'{}' - invalid literal", body) }),
             }
             continue;
@@ -155,7 +157,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
                 adv!();
             }
             let s: String = chars[start..i].iter().collect();
-            out.push(Token { tok: Tok::Ident(s), line: tl, col: tc });
+            out.push(Token { tok: Tok::Ident(s), line: tl, col: tc, file: 0 });
             continue;
         }
         if c.is_ascii_digit() || (c == '.' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit()) {
@@ -169,7 +171,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
                 }
                 let h: String = chars[hs..i].iter().collect();
                 let v = i64::from_str_radix(&h, 16).unwrap_or(0);
-                out.push(Token { tok: Tok::Int(v), line: tl, col: tc });
+                out.push(Token { tok: Tok::Int(v), line: tl, col: tc, file: 0 });
                 continue;
             }
             let mut is_float = false;
@@ -202,11 +204,11 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
                 adv!();
             }
             if is_float {
-                out.push(Token { tok: Tok::Float(s.parse().unwrap_or(0.0)), line: tl, col: tc });
+                out.push(Token { tok: Tok::Float(s.parse().unwrap_or(0.0)), line: tl, col: tc, file: 0 });
             } else {
                 match s.parse::<i64>() {
-                    Ok(v) => out.push(Token { tok: Tok::Int(v), line: tl, col: tc }),
-                    Err(_) => out.push(Token { tok: Tok::Float(s.parse().unwrap_or(0.0)), line: tl, col: tc }),
+                    Ok(v) => out.push(Token { tok: Tok::Int(v), line: tl, col: tc, file: 0 }),
+                    Err(_) => out.push(Token { tok: Tok::Float(s.parse().unwrap_or(0.0)), line: tl, col: tc, file: 0 }),
                 }
             }
             continue;
@@ -237,7 +239,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
             if i < chars.len() {
                 adv!();
             }
-            out.push(Token { tok: Tok::Str(s), line: tl, col: tc });
+            out.push(Token { tok: Tok::Str(s), line: tl, col: tc, file: 0 });
             continue;
         }
         if c == '\'' {
@@ -261,7 +263,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
             if i < chars.len() && chars[i] == '\'' {
                 adv!();
             }
-            out.push(Token { tok: Tok::Int(v), line: tl, col: tc });
+            out.push(Token { tok: Tok::Int(v), line: tl, col: tc, file: 0 });
             continue;
         }
         let mut matched = None;
@@ -277,7 +279,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
                 for _ in 0..p.chars().count() {
                     adv!();
                 }
-                out.push(Token { tok: Tok::Punct(p), line: tl, col: tc });
+                out.push(Token { tok: Tok::Punct(p), line: tl, col: tc, file: 0 });
             }
             None => {
                 return Err(CompileError { line: tl, col: tc, msg: format!("'{}' - unexpected character", c) });
@@ -293,7 +295,7 @@ fn lex_impl(src: &str, directives: bool) -> Result<Lexed, CompileError> {
         }
         joined.push(t);
     }
-    joined.push(Token { tok: Tok::Eof, line, col });
+    joined.push(Token { tok: Tok::Eof, line, col, file: 0 });
     Ok(Lexed { tokens: joined, line_comments: comments })
 }
 

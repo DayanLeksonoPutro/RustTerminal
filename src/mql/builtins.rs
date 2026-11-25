@@ -97,6 +97,16 @@ pub fn builtin_structs() -> Vec<(&'static str, Vec<(&'static str, Ty)>)> {
             "MqlDateTime",
             vec![("year", Int), ("mon", Int), ("day", Int), ("hour", Int), ("min", Int), ("sec", Int), ("day_of_week", Int), ("day_of_year", Int)],
         ),
+        ("MqlParam", vec![("type", Int), ("integer_value", Int), ("double_value", Double), ("string_value", Str)]),
+        (
+            "MqlTradeTransaction",
+            vec![
+                ("deal", Int), ("order", Int), ("symbol", Str), ("type", Int), ("order_type", Int), ("order_state", Int),
+                ("deal_type", Int), ("time_type", Int), ("time_expiration", Int), ("price", Double), ("price_trigger", Double),
+                ("price_sl", Double), ("price_tp", Double), ("volume", Double), ("position", Int), ("position_by", Int),
+            ],
+        ),
+        ("MqlBookInfo", vec![("type", Int), ("price", Double), ("volume", Int), ("volume_real", Double)]),
     ]
 }
 
@@ -156,7 +166,11 @@ pub const EXTRA_FUNCS: &[&str] = &[
     "FileReadNumber", "FileReadBool", "FileReadDatetime", "FileWriteDouble", "FileWriteFloat", "FileWriteInteger", "FileWriteLong",
     "FileReadDouble", "FileReadFloat", "FileReadInteger", "FileReadLong", "FileWriteArray", "FileReadArray", "FileIsEnding",
     "FileIsLineEnding", "FileSize", "FileTell", "FileSeek", "FileGetInteger", "FileIsExist", "FileDelete", "FileMove", "FileCopy",
-    "FolderCreate", "FolderDelete", "FolderClean",
+    "FolderCreate", "FolderDelete", "FolderClean", "SymbolInfoMarginRate", "CLContextCreate", "CLContextFree", "CLProgramCreate",
+    "CLProgramFree", "CLKernelCreate", "CLKernelFree", "CLBufferCreate", "CLBufferFree", "CLBufferRead", "CLBufferWrite",
+    "CLSetKernelArg", "CLSetKernelArgMem", "CLExecute", "CLGetInfoInteger", "CLHandleType", "FileWriteStruct", "FileReadStruct",
+    "MathIsInf", "MathIsNaN", "ChartXOnDropped", "ChartYOnDropped", "ChartTimeOnDropped", "ChartPriceOnDropped",
+    "ChartWindowOnDropped", "FileFindFirst", "FileFindNext", "FileFindClose",
 ];
 
 pub fn is_builtin_func(name: &str) -> bool {
@@ -620,6 +634,23 @@ fn table() -> &'static HashMap<String, Const> {
             ("TICK_FLAG_SELL", 64), ("COPY_TICKS_ALL", -1), ("COPY_TICKS_INFO", 1), ("COPY_TICKS_TRADE", 2),
             ("SYMBOL_CHART_MODE", 82), ("SYMBOL_CHART_MODE_BID", 0), ("SYMBOL_CHART_MODE_LAST", 1),
             ("ENUM_DAY_OF_WEEK_", 0),
+            ("DEAL_TYPE_COMMISSION_DAILY", 8), ("DEAL_TYPE_COMMISSION_MONTHLY", 9), ("DEAL_TYPE_COMMISSION_AGENT_DAILY", 10),
+            ("DEAL_TYPE_COMMISSION_AGENT_MONTHLY", 11), ("DEAL_TYPE_INTEREST", 12), ("DEAL_TYPE_BUY_CANCELED", 13),
+            ("DEAL_TYPE_SELL_CANCELED", 14), ("DEAL_DIVIDEND", 15), ("DEAL_DIVIDEND_FRANKED", 16), ("DEAL_TAX", 17),
+            ("DEAL_ENTRY_STATE", 4),
+            ("ORDER_STATE_REQUEST_ADD", 7), ("ORDER_STATE_REQUEST_MODIFY", 8), ("ORDER_STATE_REQUEST_CANCEL", 9),
+            ("SYMBOL_SWAP_MODE_CURRENCY_MARGIN", 3), ("SYMBOL_SWAP_MODE_CURRENCY_DEPOSIT", 4), ("SYMBOL_SWAP_MODE_INTEREST_CURRENT", 5),
+            ("SYMBOL_SWAP_MODE_INTEREST_OPEN", 6), ("SYMBOL_SWAP_MODE_REOPEN_CURRENT", 7), ("SYMBOL_SWAP_MODE_REOPEN_BID", 8),
+            ("SYMBOL_SESSION_BUY_ORDERS", 83), ("SYMBOL_SESSION_SELL_ORDERS", 84), ("SYMBOL_SESSION_BUY_ORDERS_VOLUME", 85),
+            ("SYMBOL_SESSION_SELL_ORDERS_VOLUME", 86), ("SYMBOL_OPTION_STRIKE", 87), ("SYMBOL_PRICE_CHANGE", 88),
+            ("SYMBOL_CALC_MODE_EXCH_STOCKS", 32), ("SYMBOL_CALC_MODE_EXCH_FUTURES", 33), ("SYMBOL_CALC_MODE_EXCH_FUTURES_FORTS", 34),
+            ("SYMBOL_CALC_MODE_EXCH_BONDS", 37), ("SYMBOL_CALC_MODE_EXCH_STOCKS_MOEX", 38), ("SYMBOL_CALC_MODE_EXCH_BONDS_MOEX", 39),
+            ("SYMBOL_CALC_MODE_SERV_COLLATERAL", 64),
+            ("COLOR_FORMAT_XRGB_NOALPHA", 0), ("COLOR_FORMAT_ARGB_RAW", 1), ("COLOR_FORMAT_ARGB_NORMALIZE", 2),
+            ("CHART_WIDTH_IN_BARS", 70), ("CHART_SHOW_LAST_LINE", 71), ("OBJPROP_BORDER_TYPE", 56),
+            ("CL_USE_ANY", 0), ("CL_USE_CPU_ONLY", 1), ("CL_USE_GPU_ONLY", 2), ("CL_USE_GPU_DOUBLE_ONLY", 3),
+            ("CL_MEM_READ_WRITE", 1), ("CL_MEM_WRITE_ONLY", 2), ("CL_MEM_READ_ONLY", 4), ("CL_MEM_ALLOC_HOST_PTR", 8),
+
         ];
         for (k, v) in ints {
             add(k, I(*v));
@@ -641,6 +672,13 @@ fn table() -> &'static HashMap<String, Const> {
             ("M_SQRT2", std::f64::consts::SQRT_2),
             ("M_LN2", std::f64::consts::LN_2),
             ("M_LN10", std::f64::consts::LN_10),
+            ("M_1_PI", std::f64::consts::FRAC_1_PI),
+            ("M_2_PI", std::f64::consts::FRAC_2_PI),
+            ("M_PI_4", std::f64::consts::FRAC_PI_4),
+            ("M_2_SQRTPI", std::f64::consts::FRAC_2_SQRT_PI),
+            ("M_SQRT1_2", std::f64::consts::FRAC_1_SQRT_2),
+            ("M_LOG2E", std::f64::consts::LOG2_E),
+            ("M_LOG10E", std::f64::consts::LOG10_E),
         ];
         for (k, v) in dbls {
             add(k, D(*v));

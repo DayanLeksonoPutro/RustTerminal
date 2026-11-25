@@ -175,6 +175,7 @@ pub(super) fn out_params(name: &str, argc: usize) -> Option<&'static [usize]> {
         ("ChartXYToTimePrice", 6) => &[3, 4, 5],
         ("TimeCurrent" | "TimeLocal" | "TimeGMT" | "TimeTradeServer", 1) => &[0],
         ("IndicatorParameters", 3) => &[1],
+        ("SymbolInfoMarginRate", 4) => &[2, 3],
         _ => return None,
     })
 }
@@ -224,6 +225,7 @@ impl Instance {
                 (t, vec![(0, st)])
             }
             "IndicatorParameters" => (Value::Int(-1), vec![]),
+            "SymbolInfoMarginRate" => (Value::Bool(true), vec![(0, Value::Double(1.0)), (1, Value::Double(1.0))]),
             // getter overloads `F(..., &value)`: call the plain form and return its value
             _ => {
                 let v = self.call_builtin_values(name, &a[..a.len() - 1], host)?;
@@ -494,6 +496,17 @@ impl Instance {
                 Value::Int(n)
             }
             "SymbolIsSynchronized" => Value::Bool(true),
+            "MathIsInf" => Value::Bool(af(a, 0, 0.0).is_infinite()),
+            "MathIsNaN" => Value::Bool(af(a, 0, 0.0).is_nan()),
+            // OpenCL is not available: every call reports failure like a computer without OpenCL
+            "CLContextCreate" | "CLProgramCreate" | "CLKernelCreate" | "CLBufferCreate" => {
+                self.last_error = 5100;
+                Value::Int(-1)
+            }
+            "CLContextFree" | "CLProgramFree" | "CLKernelFree" | "CLBufferFree" => Value::Void,
+            "CLBufferRead" | "CLBufferWrite" | "CLSetKernelArg" | "CLSetKernelArgMem" | "CLExecute" => Value::Bool(false),
+            "CLGetInfoInteger" | "CLHandleType" => Value::Int(-1),
+            "FileWriteStruct" | "FileReadStruct" => Value::Int(0),
             // ---------- terminal / chart ----------
             "MessageBox" => {
                 host.alert(&format!("{} {}", as_(a, 1), as_(a, 0)).trim().to_string());
@@ -511,7 +524,12 @@ impl Instance {
             "ChartWindowFind" | "ChartIndicatorsTotal" | "WindowsTotal" => Value::Int(0),
             "ChartIndicatorName" => Value::str(""),
             "ChartIndicatorGet" => Value::Int(-1),
-            "ChartOpen" | "ChartFirst" => Value::Int(0),
+            "ChartOpen" | "ChartFirst" | "ChartXOnDropped" | "ChartYOnDropped" | "ChartWindowOnDropped" => Value::Int(0),
+            "ChartTimeOnDropped" => Value::Int(host.now()),
+            "ChartPriceOnDropped" => Value::Double(host.quote(&self.symbol).map(|q| q.bid).unwrap_or(0.0)),
+            "FileFindFirst" => Value::Int(-1),
+            "FileFindNext" => Value::Bool(false),
+            "FileFindClose" => Value::Void,
             "ChartNext" => Value::Int(-1),
             "ResourceCreate" | "ResourceSave" | "ResourceReadImage" => Value::Bool(false),
             "ResourceFree" => Value::Bool(true),

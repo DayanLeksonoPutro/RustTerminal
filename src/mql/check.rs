@@ -15,6 +15,7 @@ struct Checker<'a> {
     cls: Option<Sym>,
     line: u32,
     col: u32,
+    file: u16,
 }
 
 pub fn check(p: &Program) -> Vec<CompileError> {
@@ -26,6 +27,7 @@ pub fn check(p: &Program) -> Vec<CompileError> {
         cls: None,
         line: 0,
         col: 0,
+        file: 0,
     };
     for g in &p.globals {
         c.line = g.line;
@@ -82,6 +84,10 @@ pub fn check(p: &Program) -> Vec<CompileError> {
 
 impl<'a> Checker<'a> {
     fn err(&mut self, msg: String) {
+        let msg = match self.p.files.get(self.file as usize) {
+            Some(f) if self.file > 0 => format!("{} ({}): {}", f, self.line, msg),
+            _ => msg,
+        };
         if self.errors.iter().any(|e| e.line == self.line && e.msg == msg) {
             return;
         }
@@ -108,6 +114,7 @@ impl<'a> Checker<'a> {
     fn stmt(&mut self, s: &Stmt) {
         self.line = s.line;
         self.col = s.col;
+        self.file = s.file;
         match &s.kind {
             StmtKind::Expr(e) => self.expr(e),
             StmtKind::Decl(ds) => {
@@ -201,17 +208,26 @@ impl<'a> Checker<'a> {
             Expr::Member(a, _) => self.expr(a),
             Expr::Call(s, args) => {
                 let name = self.p.interner.name(*s).to_string();
-                if self.is_method(*s) {
-                    // method of the current class (overloads checked at run time)
+                if self.is_method(*s) || self.declared(*s) {
+                    // method of the current class, or a function pointer variable
                 } else if let Some(fs) = self.p.funcs.get(s) {
                     let ok = fs.iter().any(|f| {
                         let req = f.params.iter().filter(|p| p.default.is_none()).count();
                         args.len() >= req && args.len() <= f.params.len()
                     });
-                    if !ok {
+                    if !ok && !builtins::is_builtin_func(&name) {
                         self.err(format!("'{}' - wrong parameters count", name));
                     }
                 } else if !builtins::is_builtin_func(&name) {
+                    self.err(format!("'{}' - undeclared identifier", name));
+                }
+                for a in args {
+                    self.expr(a);
+                }
+            }
+            Expr::GlobalCall(s, args) => {
+                let name = self.p.interner.name(*s).to_string();
+                if !self.p.funcs.contains_key(s) && !builtins::is_builtin_func(&name) {
                     self.err(format!("'{}' - undeclared identifier", name));
                 }
                 for a in args {

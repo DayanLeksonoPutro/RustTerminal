@@ -144,6 +144,8 @@ pub struct RtError {
     pub msg: String,
     pub line: u32,
     pub col: u32,
+    /// source file index (see Program::files)
+    pub file: u16,
     /// ExpertRemove() was called: not an error
     pub removed: bool,
 }
@@ -259,6 +261,7 @@ pub struct Instance {
     depth: usize,
     cur_line: u32,
     cur_col: u32,
+    cur_file: u16,
     pub cur_func: String,
     selected_position: Option<u64>,
     selected_order: Option<u64>,
@@ -316,6 +319,7 @@ impl Instance {
             depth: 0,
             cur_line: 0,
             cur_col: 0,
+            cur_file: 0,
             cur_func: String::new(),
             selected_position: None,
             selected_order: None,
@@ -344,12 +348,13 @@ impl Instance {
     }
 
     fn err(&self, msg: impl Into<String>) -> RtError {
-        RtError { msg: msg.into(), line: self.cur_line, col: self.cur_col, removed: false }
+        RtError { msg: msg.into(), line: self.cur_line, col: self.cur_col, file: self.cur_file, removed: false }
     }
 
     pub fn fmt_err(&self, e: &RtError) -> String {
         if e.line > 0 {
-            format!("{} in '{}' ({},{})", e.msg, self.prog.file_name, e.line, e.col)
+            let f = self.prog.files.get(e.file as usize).filter(|_| e.file > 0).map(|s| s.as_str()).unwrap_or(&self.prog.file_name);
+            format!("{} in '{}' ({},{})", e.msg, f, e.line, e.col)
         } else {
             e.msg.clone()
         }
@@ -1000,6 +1005,7 @@ impl Instance {
         }
         self.cur_line = s.line;
         self.cur_col = s.col;
+        self.cur_file = s.file;
         match &s.kind {
             StmtKind::Expr(e) => {
                 self.eval(e, host)?;
@@ -1204,7 +1210,7 @@ impl Instance {
             Expr::Double(v) => Ok(Value::Double(*v)),
             Expr::Str(s) => Ok(Value::Str(s.clone())),
             Expr::Bool(b) => Ok(Value::Bool(*b)),
-            Expr::Null => Ok(Value::Int(0)),
+            Expr::Null => Ok(Value::Void),
             Expr::Var(s) => self.read_var(*s, host),
             Expr::Index(a, i) => {
                 let av = self.eval(a, host)?;
@@ -1242,6 +1248,16 @@ impl Instance {
                 }
             }
             Expr::Call(s, args) => {
+                if let Some(var) = self.lookup(*s) {
+                    // call through a function pointer variable
+                    let target = match &var.borrow().v {
+                        Value::Str(t) if t.starts_with('\u{1}') => self.prog.interner.get(&t[1..]),
+                        _ => None,
+                    };
+                    if let Some(fs) = target.and_then(|f| self.prog.funcs.get(&f).cloned()) {
+                        return self.call_user(&fs, args, None, host);
+                    }
+                }
                 if let Some(t) = self.cur_this() {
                     let cls = t.borrow().ty;
                     if let Some(fs) = self.prog.find_method(cls, *s).cloned() {
@@ -1249,7 +1265,14 @@ impl Instance {
                     }
                 }
                 if let Some(fs) = self.prog.funcs.get(s).cloned() {
-                    return self.call_user(&fs, args, None, host);
+                    let fits = fs.iter().any(|f| {
+                        let req = f.params.iter().filter(|p| p.default.is_none()).count();
+                        args.len() >= req && args.len() <= f.params.len()
+                    });
+                    // a program may add overloads of a built-in (MathMin for arrays...)
+                    if fits || !builtins::is_builtin_func(self.sym(*s)) {
+                        return self.call_user(&fs, args, None, host);
+                    }
                 }
                 let name = self.sym(*s).to_string();
                 self.call_builtin(&name, args, host)
@@ -1283,6 +1306,19 @@ impl Instance {
                     self.call_builtin(&name, args, host)
                 }
             },
+            Expr::GlobalCall(s, args) => {
+                if let Some(fs) = self.prog.funcs.get(s).cloned() {
+                    let fits = fs.iter().any(|f| {
+                        let req = f.params.iter().filter(|p| p.default.is_none()).count();
+                        args.len() >= req && args.len() <= f.params.len()
+                    });
+                    if fits || !builtins::is_builtin_func(self.sym(*s)) {
+                        return self.call_user(&fs, args, None, host);
+                    }
+                }
+                let name = self.sym(*s).to_string();
+                self.call_builtin(&name, args, host)
+            }
             Expr::New(cls, args) => self.construct(*cls, args, host),
             Expr::Delete(e) => {
                 if let Value::Struct(st) = self.eval(e, host)? {
@@ -1410,6 +1446,10 @@ impl Instance {
             if let Some(t) = self.cur_this() {
                 return Ok(Value::Struct(t));
             }
+        }
+        if self.prog.funcs.contains_key(&s) {
+            // a function used as a value (function pointer)
+            return Ok(Value::str(&format!("\u{1}{}", self.sym(s))));
         }
         if let Some(c) = self.prog.enum_consts.get(&s) {
             return Ok(Value::Int(*c));
