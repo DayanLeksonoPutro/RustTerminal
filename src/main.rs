@@ -10,6 +10,7 @@ mod editor;
 mod host;
 mod indicators;
 mod indicators_ext;
+mod mt5ind;
 mod market;
 mod mql;
 mod objects;

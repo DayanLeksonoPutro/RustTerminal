@@ -85,3 +85,18 @@ USD-based pairs). Stop loss, take profit and pending orders are checked on every
 Modelling modes: every tick (generated, 13 points per bar), 1 minute OHLC (4 points: open, low/high,
 high/low, close), open prices only. Positions still open at the end are closed. Report: net
 profit, gross profit/loss, profit factor, expected payoff, maximal drawdown, trade counts.
+
+## Indicator values read by programs (CopyBuffer)
+
+Programs read built-in indicators through `src/mt5ind.rs`, which follows the platform's
+reference algorithms (the example indicators shipped in MQL5/Indicators/Examples and the
+MovingAverages library) step by step, including the first bars: 0.0 while an SMA/SMMA/LWMA
+warms up, the first price for an EMA, EMPTY_VALUE where the reference writes nothing.
+
+Checked by `cargo test reference_indicators -- --ignored` (runs the reference .mq5 files in the
+engine and compares every value): 36 of 37 identical (largest difference 3e-11, rounding).
+The exception is AMA: the reference example never sets its slow smoothing constant (it stays
+0), while this build uses the documented formula SSC = ER*(fast-slow)+slow.
+
+Not verified: whether CopyBuffer applies a plot shift (iMA ma_shift, Alligator shifts); this
+build returns unshifted values. BW MFI's live-bar time correction is not applied.

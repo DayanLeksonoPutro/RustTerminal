@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::account::{Account, Deal, PendingOrder, Position, RET_DONE};
-use crate::indicators::{script_buffers, IndKind, IndParams};
+use crate::indicators::{IndKind, IndParams};
 use crate::market::{civil, Bar, Timeframe};
 use crate::objects::{ChartObj, ObjKind};
 
@@ -192,12 +192,13 @@ impl Instance {
         let result = match &mut handle {
             Some(Handle::Builtin { kind, params, symbol, tf }) => {
                 let (k, p, s, t) = (*kind, *params, symbol.clone(), *tf);
-                self.with_bars(host, &s, t, |bars| script_buffers(k, &p, bars))
+                self.with_bars(host, &s, t, |bars| crate::mt5ind::builtin(k, &p, bars))
                     .and_then(|mut v| if buf < v.len() { Some(v.swap_remove(buf)) } else { None })
             }
             Some(Handle::Ext { kind, params, symbol, tf }) => {
                 let (k, p, s, t) = (*kind, params.clone(), symbol.clone(), *tf);
-                self.with_bars(host, &s, t, |bars| crate::indicators_ext::compute(k, &p, bars))
+                let point = host.quote(&s).map(|q| q.spec.point()).unwrap_or(0.0);
+                self.with_bars(host, &s, t, |bars| crate::mt5ind::ext(k, &p, bars, point).unwrap_or_else(|| crate::indicators_ext::compute(k, &p, bars)))
                     .and_then(|mut v| if buf < v.len() { Some(v.swap_remove(buf)) } else { None })
             }
             Some(Handle::Custom { inst: Some(child), symbol, tf }) => {

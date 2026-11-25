@@ -384,3 +384,124 @@ fn corpus() {
         println!("{:4}  {}", f.len(), k);
     }
 }
+
+/// Compare the built-in indicators with the platform's own example indicators
+/// (Indicators/Examples/*.mq5) run in the engine, value by value:
+/// `CORPUS=/path/to/MQL5 cargo test reference_indicators -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn reference_indicators() {
+    use crate::indicators::{IndKind, IndParams};
+    use crate::indicators_ext::{ExtKind, ExtParams};
+    let script_buffers = |k: IndKind, p: &IndParams, b: &[crate::market::Bar]| crate::mt5ind::builtin(k, p, b);
+    let ext = |k: ExtKind, p: &ExtParams, b: &[crate::market::Bar]| crate::mt5ind::ext(k, p, b, 0.00001).unwrap_or_else(|| crate::indicators_ext::compute(k, p, b));
+    let root = std::path::PathBuf::from(std::env::var("CORPUS").expect("set CORPUS"));
+    let mut m = Market::new();
+    let bars = m.bars(0, Timeframe::H1).to_vec();
+    let spec = m.symbols[0].spec.clone();
+    let d = |k: IndKind| IndParams::defaults(k);
+    let e = |k: ExtKind, i: &[i64]| ext(k, &ExtParams { i: i.to_vec(), f: vec![] }, &bars);
+    type Case = (&'static str, Vec<Vec<f64>>, Vec<(usize, usize)>);
+    let cases: Vec<Case> = vec![
+        ("RSI", script_buffers(IndKind::Rsi, &IndParams { p1: 14, ..d(IndKind::Rsi) }, &bars), vec![(0, 0)]),
+        ("MACD", script_buffers(IndKind::Macd, &IndParams { p1: 12, p2: 26, p3: 9, ..d(IndKind::Macd) }, &bars), vec![(0, 0), (1, 1)]),
+        ("ATR", script_buffers(IndKind::Atr, &IndParams { p1: 14, ..d(IndKind::Atr) }, &bars), vec![(0, 0)]),
+        ("BB", script_buffers(IndKind::Bands, &IndParams { p1: 20, f1: 2.0, ..d(IndKind::Bands) }, &bars), vec![(0, 0), (1, 1), (2, 2)]),
+        ("CCI", script_buffers(IndKind::Cci, &IndParams { p1: 14, price: 1, ..d(IndKind::Cci) }, &bars), vec![(0, 0)]),
+        ("Momentum", script_buffers(IndKind::Momentum, &IndParams { p1: 14, ..d(IndKind::Momentum) }, &bars), vec![(0, 0)]),
+        ("Stochastic", script_buffers(IndKind::Stochastic, &IndParams { p1: 5, p2: 3, p3: 3, ..d(IndKind::Stochastic) }, &bars), vec![(0, 0), (1, 1)]),
+        ("ADX", script_buffers(IndKind::Adx, &IndParams { p1: 14, ..d(IndKind::Adx) }, &bars), vec![(0, 0), (1, 1), (2, 2)]),
+        ("WPR", script_buffers(IndKind::Wpr, &IndParams { p1: 14, ..d(IndKind::Wpr) }, &bars), vec![(0, 0)]),
+        ("Custom Moving Average", script_buffers(IndKind::MovingAverage, &IndParams { p1: 13, method: 2, ..d(IndKind::MovingAverage) }, &bars), vec![(0, 0)]),
+        ("Envelopes", script_buffers(IndKind::Envelopes, &IndParams { p1: 14, f1: 0.1, ..d(IndKind::Envelopes) }, &bars), vec![(0, 0), (1, 1)]),
+        ("Ichimoku", script_buffers(IndKind::Ichimoku, &IndParams { p1: 9, p2: 26, p3: 52, ..d(IndKind::Ichimoku) }, &bars), vec![(0, 0), (1, 1)]),
+        ("ParabolicSAR", script_buffers(IndKind::Sar, &IndParams { f1: 0.02, f2: 0.2, ..d(IndKind::Sar) }, &bars), vec![(0, 0)]),
+        ("Alligator", script_buffers(IndKind::Alligator, &d(IndKind::Alligator), &bars), vec![(0, 0), (1, 1), (2, 2)]),
+        ("Fractals", script_buffers(IndKind::Fractals, &d(IndKind::Fractals), &bars), vec![(0, 0), (1, 1)]),
+        ("DEMA", e(ExtKind::Dema, &[14, 0, 1]), vec![(0, 0)]),
+        ("TEMA", e(ExtKind::Tema, &[14, 0, 1]), vec![(0, 0)]),
+        ("TRIX", e(ExtKind::Trix, &[14, 1]), vec![(0, 0)]),
+        ("OsMA", e(ExtKind::Osma, &[12, 26, 9, 1]), vec![(0, 0)]),
+        ("Awesome_Oscillator", e(ExtKind::Ao, &[]), vec![(0, 0), (1, 1)]),
+        ("Accelerator", e(ExtKind::Ac, &[]), vec![(0, 0), (1, 1)]),
+        ("Bears", e(ExtKind::Bears, &[13]), vec![(0, 0)]),
+        ("Bulls", e(ExtKind::Bulls, &[13]), vec![(0, 0)]),
+        ("Force_Index", e(ExtKind::Force, &[13, 0, 0]), vec![(0, 0)]),
+        ("MFI", e(ExtKind::Mfi, &[14, 0]), vec![(0, 0)]),
+        ("OBV", e(ExtKind::Obv, &[0]), vec![(0, 0)]),
+        ("RVI", e(ExtKind::Rvi, &[10]), vec![(0, 0), (1, 1)]),
+        ("StdDev", e(ExtKind::StdDev, &[20, 0, 0, 1]), vec![(0, 0)]),
+        ("DeMarker", e(ExtKind::DeMarker, &[14]), vec![(0, 0)]),
+        ("CHO", e(ExtKind::Chaikin, &[3, 10, 1, 0]), vec![(0, 0)]),
+        ("AD", e(ExtKind::Ad, &[0]), vec![(0, 0)]),
+        ("MarketFacilitationIndex", e(ExtKind::Bwmfi, &[0]), vec![(0, 0)]),
+        ("Gator", e(ExtKind::Gator, &[13, 8, 8, 5, 5, 3, 2, 5]), vec![(0, 0), (2, 2)]),
+        ("AMA", e(ExtKind::Ama, &[10, 2, 30, 0, 1]), vec![(0, 0)]),
+        ("FrAMA", e(ExtKind::Frama, &[14, 0, 1]), vec![(0, 0)]),
+        ("VIDYA", e(ExtKind::Vidya, &[9, 12, 0, 1]), vec![(0, 0)]),
+        ("ADXW", e(ExtKind::AdxWilder, &[14]), vec![(0, 0), (1, 1), (2, 2)]),
+    ];
+    let inc = root.join("Include");
+    let mut exact = 0;
+    for (name, native, pairs) in cases {
+        let path = root.join("Indicators/Examples").join(format!("{}.mq5", name));
+        let src = match std::fs::read(&path) {
+            Ok(b) => crate::storage::decode_source(&b),
+            Err(_) => {
+                println!("{:24} (no file)", name);
+                continue;
+            }
+        };
+        let inc2 = inc.clone();
+        let loader = move |p: &str| -> Option<String> { std::fs::read(inc2.join(p)).ok().map(|b| crate::storage::decode_source(&b)) };
+        let prog = match compile(name, &src, &loader) {
+            Ok(p) => Rc::new(p),
+            Err(e) => {
+                println!("{:24} compile error {:?}", name, e.first());
+                continue;
+            }
+        };
+        let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+        run.host.view = bars.clone();
+        let mut inst = crate::mql::Instance::new(prog, "EURUSD", Timeframe::H1, &HashMap::new());
+        if let Err(er) = inst.init(&mut run.host).and_then(|_| inst.calculate(&mut run.host)) {
+            println!("{:24} run error {}", name, inst.fmt_err(&er));
+            continue;
+        }
+        let mut line = format!("{:24}", name);
+        let mut all_ok = true;
+        for (rb, nb) in pairs {
+            let r: Vec<f64> = match inst.buffers.get(rb).and_then(|b| b.as_ref()) {
+                Some((arr, _)) => arr.borrow().data.iter().map(|v| v.as_f64()).collect(),
+                None => vec![],
+            };
+            let nv = native.get(nb).cloned().unwrap_or_default();
+            let ok = |x: f64| x.is_finite() && x != f64::MAX && x.abs() < 1e300;
+            let (mut cnt, mut maxd, mut maxd_tail, mut only_r, mut only_n) = (0, 0.0f64, 0.0f64, 0, 0);
+            let n = r.len().min(nv.len());
+            for i in 0..n {
+                match (ok(r[i]), ok(nv[i])) {
+                    (true, true) => {
+                        cnt += 1;
+                        let dd = (r[i] - nv[i]).abs() / r[i].abs().max(1e-9).max(1.0);
+                        maxd = maxd.max(dd);
+                        if i + 500 >= n {
+                            maxd_tail = maxd_tail.max(dd);
+                        }
+                    }
+                    (true, false) => only_r += 1,
+                    (false, true) => only_n += 1,
+                    _ => {}
+                }
+            }
+            let good = maxd < 1e-9 && only_r == 0 && only_n == 0 && cnt > 0;
+            all_ok &= good;
+            line += &format!(" | b{}: n={} max={:.2e} tail={:.2e} onlyRef={} onlyNative={}", rb, cnt, maxd, maxd_tail, only_r, only_n);
+        }
+        if all_ok {
+            exact += 1;
+        }
+        println!("{} {}", if all_ok { "OK  " } else { "DIFF" }, line);
+    }
+    println!("exact: {}", exact);
+}
