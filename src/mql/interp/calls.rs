@@ -894,11 +894,18 @@ impl Instance {
             "GetPointer" => a.first().cloned().unwrap_or(vi(0)),
             // ---------- time ----------
             "TimeCurrent" | "TimeTradeServer" => vi(host.now()),
-            "TimeLocal" | "TimeGMT" => vi(if host.is_tester() {
-                host.now()
-            } else {
-                crate::market::unix_now()
-            }),
+            "TimeLocal" | "TimeGMT" => {
+                let gmt = if host.is_tester() {
+                    crate::tz::server_to_utc(host.now())
+                } else {
+                    crate::market::unix_now()
+                };
+                vi(if name == "TimeLocal" {
+                    gmt + crate::tz::local_offset()
+                } else {
+                    gmt
+                })
+            }
             "TimeToStruct" => {
                 let t = arg_i(a, 0, 0);
                 if let Some(s) = a.get(1) {

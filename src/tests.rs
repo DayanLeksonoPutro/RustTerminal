@@ -966,7 +966,7 @@ fn export_script_round_trip() {
     let out = dir.join("Common/Files/RustTerminal");
     let csv = out.join("EURUSD_H1.csv");
     assert!(csv.exists(), "log: {:?}", run.host.log);
-    let imported = crate::history::import_file(&csv, None, None).unwrap();
+    let imported = crate::history::import_file(&csv, None, None, crate::tz::server()).unwrap();
     assert_eq!(
         (imported.symbol.as_str(), imported.tf),
         ("EURUSD", Timeframe::H1)
@@ -1185,4 +1185,27 @@ void OnStart() {
         .map(|s| s.split("   ").last().unwrap_or(s).trim())
         .collect();
     assert!(got.ends_with(&["true", "true true"]), "{:#?}", got);
+}
+
+#[test]
+fn time_zones() {
+    use crate::tz::{us_dst, Zone};
+    let d = |y: i64, m: i64, day: i64, h: i64| {
+        crate::mql::lexer::days_from_civil(y, m, day) * 86400 + h * 3600
+    };
+    // 2026: DST from Sunday 8 March 07:00 UTC to Sunday 1 November 06:00 UTC
+    assert!(!us_dst(d(2026, 3, 8, 6)));
+    assert!(us_dst(d(2026, 3, 8, 7)));
+    assert!(us_dst(d(2026, 11, 1, 5)));
+    assert!(!us_dst(d(2026, 11, 1, 6)));
+    assert_eq!(Zone::Broker.offset_at(d(2026, 7, 1, 0)), 3 * 3600);
+    assert_eq!(Zone::Broker.offset_at(d(2026, 12, 1, 0)), 2 * 3600);
+    assert_eq!(Zone::parse("+07:00"), Some(Zone::Fixed(420)));
+    assert_eq!(Zone::parse("GMT-5"), Some(Zone::Fixed(-300)));
+    assert_eq!(Zone::parse("broker"), Some(Zone::Broker));
+    for z in [Zone::Broker, Zone::Fixed(420), Zone::Utc] {
+        let t = d(2026, 6, 15, 12);
+        assert_eq!(z.to_utc(z.from_utc(t)), t);
+        assert_eq!(Zone::parse(&z.key()), Some(z));
+    }
 }

@@ -335,12 +335,41 @@ pub fn save(symbol: &str, tf: Timeframe, bars: &[Bar]) -> std::io::Result<()> {
     }
     let tmp = p.with_extension("csv.tmp");
     std::fs::write(&tmp, s)?;
-    std::fs::rename(tmp, p)
+    std::fs::rename(tmp, p)?;
+    std::fs::write(utc_marker(symbol), "bar times in this folder are UTC\n")
 }
 
-fn read_stored(symbol: &str, tf: Timeframe) -> Option<Vec<Bar>> {
+/// Stored bars as written: UTC when the folder has the `.utc` marker.
+fn read_raw(symbol: &str, tf: Timeframe) -> Option<Vec<Bar>> {
     let text = std::fs::read_to_string(file_for(symbol, tf)).ok()?;
     parse_csv(&text).ok()
+}
+
+fn utc_marker(symbol: &str) -> PathBuf {
+    history_dir().join(symbol.to_ascii_uppercase()).join(".utc")
+}
+
+/// Whether a symbol's stored history is in UTC (older imports hold server time).
+pub fn stored_in_utc(symbol: &str) -> bool {
+    utc_marker(symbol).exists()
+}
+
+/// Stored bars in UTC (older server-time files are converted with the current zone).
+fn read_utc(symbol: &str, tf: Timeframe) -> Option<Vec<Bar>> {
+    let mut b = read_raw(symbol, tf)?;
+    if !stored_in_utc(symbol) {
+        crate::tz::bars_to_utc(&mut b, crate::tz::server());
+    }
+    Some(b)
+}
+
+/// Stored bars in server time.
+fn read_stored(symbol: &str, tf: Timeframe) -> Option<Vec<Bar>> {
+    let mut b = read_raw(symbol, tf)?;
+    if stored_in_utc(symbol) {
+        crate::tz::bars_to_server(&mut b, tf);
+    }
+    Some(b)
 }
 
 /// Real bars for a symbol and timeframe: the stored file, or built from the nearest
@@ -396,14 +425,17 @@ pub struct Imported {
 
 /// Import a CSV file. `symbol`/`tf` override what the file name and the data suggest.
 /// New bars are merged with already stored ones.
+/// `zone` is the time zone the file was written in; bars are stored in UTC.
 pub fn import_file(
     path: &Path,
     symbol: Option<&str>,
     tf: Option<Timeframe>,
+    zone: crate::tz::Zone,
 ) -> Result<Imported, String> {
     let raw = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
     let text = crate::storage::decode_source(&raw);
-    let bars = parse_csv(&text).map_err(|e| format!("{}: {}", path.display(), e))?;
+    let mut bars = parse_csv(&text).map_err(|e| format!("{}: {}", path.display(), e))?;
+    crate::tz::bars_to_utc(&mut bars, zone);
     let (hint_sym, hint_tf) = name_hints(path);
     let symbol = symbol
         .map(|s| s.to_ascii_uppercase())
@@ -413,7 +445,7 @@ pub fn import_file(
         .or(hint_tf)
         .or_else(|| detect_timeframe(&bars))
         .ok_or("cannot tell the timeframe")?;
-    let merged = match read_stored(&symbol, tf) {
+    let merged = match read_utc(&symbol, tf) {
         Some(mut old) => {
             old.extend(bars);
             old.sort_by_key(|b| b.time);
@@ -554,6 +586,12 @@ pub fn import_from_terminal() -> (Vec<Imported>, Vec<SymbolInfo>, Vec<String>) {
         return (done, syms, errors);
     }
     for d in dirs.iter().filter(|d| d.is_dir()) {
+        // the export records the broker's UTC offset; older exports: the import setting
+        let zone = std::fs::read_to_string(d.join("server_zone.txt"))
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .map(crate::tz::zone_from_offset)
+            .unwrap_or_else(crate::tz::import_zone);
         if let Ok(rd) = std::fs::read_dir(d) {
             let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
             files.sort();
@@ -568,7 +606,7 @@ pub fn import_from_terminal() -> (Vec<Imported>, Vec<SymbolInfo>, Vec<String>) {
                         syms.extend(parse_symbols_csv(&crate::storage::decode_source(&b)));
                     }
                 } else if name.to_ascii_lowercase().ends_with(".csv") {
-                    match import_file(&p, None, None) {
+                    match import_file(&p, None, None, zone) {
                         Ok(i) => done.push(i),
                         Err(e) => errors.push(e),
                     }

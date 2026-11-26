@@ -27,6 +27,7 @@ mod tester;
 mod tester_ui;
 #[cfg(test)]
 mod tests;
+pub mod tz;
 mod ui;
 
 use std::path::PathBuf;

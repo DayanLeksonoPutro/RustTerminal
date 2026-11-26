@@ -82,6 +82,13 @@ void OnStart()
          list[i] = SymbolName(i, true);
      }
    FolderCreate("RustTerminal", FILE_COMMON);
+   // the broker's offset from UTC, so the importer can turn bar times into UTC
+   int hz = FileOpen("RustTerminal\\server_zone.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(hz != INVALID_HANDLE)
+     {
+      FileWriteString(hz, IntegerToString((long)(TimeTradeServer() - TimeGMT())) + "\r\n");
+      FileClose(hz);
+     }
    int hs = FileOpen("RustTerminal\\symbols.csv", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
    if(hs == INVALID_HANDLE)
      {

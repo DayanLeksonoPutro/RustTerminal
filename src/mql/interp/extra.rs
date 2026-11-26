@@ -542,7 +542,9 @@ impl Instance {
                 Value::Void
             }
             // ---------- time ----------
-            "TimeDaylightSavings" | "TimeGMTOffset" => Value::Int(0),
+            "TimeDaylightSavings" => Value::Int(0),
+            // TimeGMT() - TimeLocal()
+            "TimeGMTOffset" => Value::Int(-crate::tz::local_offset()),
             // ---------- series ----------
             "SeriesInfoInteger" => {
                 let sym = self.sym_arg(a.first());

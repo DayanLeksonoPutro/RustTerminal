@@ -102,6 +102,40 @@ impl TerminalApp {
             ui.add_space(6.0);
             ui.separator();
 
+            // ---- time zones ----
+            ui.label(RichText::new("Time zones").strong());
+            ui.horizontal(|ui| {
+                ui.label("Terminal (server) time");
+                let cur = crate::tz::server();
+                let mut sel = cur;
+                egui::ComboBox::from_id_salt("server_zone").selected_text(cur.label()).width(260.0).show_ui(ui, |ui| {
+                    for z in crate::tz::Zone::choices() {
+                        ui.selectable_value(&mut sel, z, z.label());
+                    }
+                });
+                if sel != cur {
+                    crate::tz::save_server(sel);
+                    self.market.reload_time_zone();
+                    self.log_journal("History", format!("terminal time zone: {}", sel.label()));
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("CSV files are written in");
+                let cur = crate::tz::import_zone();
+                let mut sel = cur;
+                egui::ComboBox::from_id_salt("import_zone").selected_text(cur.label()).width(260.0).show_ui(ui, |ui| {
+                    for z in crate::tz::Zone::choices() {
+                        ui.selectable_value(&mut sel, z, z.label());
+                    }
+                });
+                if sel != cur {
+                    crate::tz::save_import_zone(sel);
+                }
+            });
+            ui.label(RichText::new("Online prices arrive in UTC and MetaTrader exports record their broker's offset; both are converted to the terminal time, which charts, bar times and TimeCurrent() use. TimeGMT() stays UTC.").weak().small());
+            ui.add_space(6.0);
+            ui.separator();
+
             // ---- MetaTrader 5 ----
             ui.label(RichText::new("From MetaTrader 5 (your broker's real data)").strong());
             ui.label("1. Install the export script, 2. run RustTerminal_Export from Navigator > Scripts in MetaTrader 5, 3. import.");
@@ -139,7 +173,7 @@ impl TerminalApp {
                 if ui.button("Import").clicked() {
                     let path = std::path::PathBuf::from(dlg.path.trim());
                     let sym = dlg.symbol.trim().to_string();
-                    dlg.result = match crate::history::import_file(&path, if sym.is_empty() { None } else { Some(&sym) }, dlg.tf) {
+                    dlg.result = match crate::history::import_file(&path, if sym.is_empty() { None } else { Some(&sym) }, dlg.tf, crate::tz::import_zone()) {
                         Ok(i) => {
                             if self.market.symbol_index(&i.symbol).is_none() {
                                 self.market.load_real_data();
@@ -168,7 +202,7 @@ impl TerminalApp {
                 }
             }
             ui.add_space(4.0);
-            ui.label(RichText::new("Accounts and order execution stay simulated. Times are as the source wrote them (MetaTrader exports use the broker's server time).").weak().small());
+            ui.label(RichText::new("Accounts and order execution stay simulated.").weak().small());
         });
         if open {
             self.dialogs.data = Some(dlg);

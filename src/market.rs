@@ -313,6 +313,7 @@ impl Market {
     /// The market with real data where it exists (imported history, exported symbol
     /// properties); everything else simulated.
     pub fn new() -> Self {
+        crate::tz::load_settings();
         let mut m = Market::new_simulated();
         m.load_real_data();
         m
@@ -320,7 +321,7 @@ impl Market {
 
     /// A fully simulated market (tests).
     pub fn new_simulated() -> Self {
-        let now = unix_now();
+        let now = crate::tz::server_now();
         let mut rng = Rng::new(now as u64);
         let symbols = default_symbols()
             .into_iter()
@@ -473,6 +474,23 @@ impl Market {
         }
     }
 
+    /// Apply a new server time zone: rebuild every series in the new zone and restart
+    /// live prices so their history arrives converted.
+    pub fn reload_time_zone(&mut self) {
+        let live = self.live_running();
+        self.stop_live();
+        self.series.clear();
+        self.now = crate::tz::server_now();
+        for i in 0..self.symbols.len() {
+            if self.symbols[i].source != Source::Simulated {
+                self.use_history(i);
+            }
+        }
+        if live {
+            self.start_live();
+        }
+    }
+
     /// Start live quotes for every symbol that has a public price source.
     pub fn start_live(&mut self) -> usize {
         let list: Vec<(String, u32)> = self
@@ -516,7 +534,12 @@ impl Market {
         let mut ticked = vec![];
         for m in msgs {
             match m {
-                crate::feed::FeedMsg::History { symbol, tf, bars } => {
+                crate::feed::FeedMsg::History {
+                    symbol,
+                    tf,
+                    mut bars,
+                } => {
+                    crate::tz::bars_to_server(&mut bars, tf);
                     if let Some(i) = self.symbol_index(&symbol) {
                         self.symbols[i].source = Source::Live;
                         if let Some(last) = bars.last() {
@@ -546,6 +569,7 @@ impl Market {
                 } => {
                     if let Some(i) = self.symbol_index(&symbol) {
                         self.symbols[i].source = Source::Live;
+                        let time = crate::tz::server().from_utc(time);
                         if self.apply_quote(i, bid, ask, time) {
                             ticked.push(i);
                         }
@@ -629,7 +653,7 @@ impl Market {
 
     /// Advance the market to the current time with a batch of ticks. Returns which symbols ticked.
     pub fn update(&mut self) -> Vec<usize> {
-        self.now = unix_now();
+        self.now = crate::tz::server_now();
         let mut ticked = self.poll_feed();
         for i in 0..self.symbols.len() {
             if self.symbols[i].source == Source::Live || ticked.contains(&i) {
