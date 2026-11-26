@@ -88,19 +88,36 @@ impl<'a> Checker<'a> {
             Some(f) if self.file > 0 => format!("{} ({}): {}", f, self.line, msg),
             _ => msg,
         };
-        if self.errors.iter().any(|e| e.line == self.line && e.msg == msg) {
+        if self
+            .errors
+            .iter()
+            .any(|e| e.line == self.line && e.msg == msg)
+        {
             return;
         }
-        self.errors.push(CompileError { line: self.line, col: self.col, msg });
+        self.errors.push(CompileError {
+            line: self.line,
+            col: self.col,
+            msg,
+        });
     }
 
     fn declared(&self, s: Sym) -> bool {
-        if self.scopes.iter().rev().any(|sc| sc.contains(&s)) || self.globals.contains(&s) || self.p.enum_consts.contains_key(&s) {
+        if self.scopes.iter().rev().any(|sc| sc.contains(&s))
+            || self.globals.contains(&s)
+            || self.p.enum_consts.contains_key(&s)
+        {
             return true;
         }
         let name = self.p.interner.name(s);
         if let Some(cls) = self.cls {
-            if name == "this" || self.p.structs.get(&cls).is_some_and(|d| d.fields.iter().any(|f| f.0 == s)) {
+            if name == "this"
+                || self
+                    .p
+                    .structs
+                    .get(&cls)
+                    .is_some_and(|d| d.fields.iter().any(|f| f.0 == s))
+            {
                 return true;
             }
         }
@@ -195,7 +212,10 @@ impl<'a> Checker<'a> {
             Expr::Var(s) => {
                 if !self.declared(*s) {
                     let n = self.p.interner.name(*s).to_string();
-                    if self.p.funcs.contains_key(s) || builtins::is_builtin_func(&n) || self.is_method(*s) {
+                    if self.p.funcs.contains_key(s)
+                        || builtins::is_builtin_func(&n)
+                        || self.is_method(*s)
+                    {
                         return; // function name used as a value
                     }
                     self.err(format!("'{}' - undeclared identifier", n));

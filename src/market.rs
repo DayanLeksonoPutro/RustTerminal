@@ -130,13 +130,69 @@ pub fn default_symbols() -> Vec<SymbolSpec> {
         volume_max: 100.0,
     };
     vec![
-        fx("EURUSD", "Euro vs US Dollar", 5, 1.08520, 0.00012, 12, ProfitCalc::QuoteUsd),
-        fx("GBPUSD", "Great Britain Pound vs US Dollar", 5, 1.27140, 0.00014, 15, ProfitCalc::QuoteUsd),
-        fx("USDJPY", "US Dollar vs Japanese Yen", 3, 151.420, 0.00013, 14, ProfitCalc::BaseUsd),
-        fx("USDCHF", "US Dollar vs Swiss Franc", 5, 0.88210, 0.00012, 16, ProfitCalc::BaseUsd),
-        fx("AUDUSD", "Australian Dollar vs US Dollar", 5, 0.65830, 0.00015, 14, ProfitCalc::QuoteUsd),
-        fx("USDCAD", "US Dollar vs Canadian Dollar", 5, 1.36250, 0.00011, 18, ProfitCalc::BaseUsd),
-        fx("NZDUSD", "New Zealand Dollar vs US Dollar", 5, 0.60120, 0.00016, 18, ProfitCalc::QuoteUsd),
+        fx(
+            "EURUSD",
+            "Euro vs US Dollar",
+            5,
+            1.08520,
+            0.00012,
+            12,
+            ProfitCalc::QuoteUsd,
+        ),
+        fx(
+            "GBPUSD",
+            "Great Britain Pound vs US Dollar",
+            5,
+            1.27140,
+            0.00014,
+            15,
+            ProfitCalc::QuoteUsd,
+        ),
+        fx(
+            "USDJPY",
+            "US Dollar vs Japanese Yen",
+            3,
+            151.420,
+            0.00013,
+            14,
+            ProfitCalc::BaseUsd,
+        ),
+        fx(
+            "USDCHF",
+            "US Dollar vs Swiss Franc",
+            5,
+            0.88210,
+            0.00012,
+            16,
+            ProfitCalc::BaseUsd,
+        ),
+        fx(
+            "AUDUSD",
+            "Australian Dollar vs US Dollar",
+            5,
+            0.65830,
+            0.00015,
+            14,
+            ProfitCalc::QuoteUsd,
+        ),
+        fx(
+            "USDCAD",
+            "US Dollar vs Canadian Dollar",
+            5,
+            1.36250,
+            0.00011,
+            18,
+            ProfitCalc::BaseUsd,
+        ),
+        fx(
+            "NZDUSD",
+            "New Zealand Dollar vs US Dollar",
+            5,
+            0.60120,
+            0.00016,
+            18,
+            ProfitCalc::QuoteUsd,
+        ),
         SymbolSpec {
             name: "XAUUSD",
             description: "Gold vs US Dollar",
@@ -287,7 +343,14 @@ impl Market {
                 }
             })
             .collect();
-        let mut m = Market { symbols, series: HashMap::new(), rng, now, feed: None, feed_status: String::new() };
+        let mut m = Market {
+            symbols,
+            series: HashMap::new(),
+            rng,
+            now,
+            feed: None,
+            feed_status: String::new(),
+        };
         for i in 0..m.symbols.len() {
             let d1 = m.bars(i, Timeframe::D1).to_vec();
             if let Some(last) = d1.last() {
@@ -301,7 +364,9 @@ impl Market {
     }
 
     pub fn symbol_index(&self, name: &str) -> Option<usize> {
-        self.symbols.iter().position(|s| s.spec.name.eq_ignore_ascii_case(name))
+        self.symbols
+            .iter()
+            .position(|s| s.spec.name.eq_ignore_ascii_case(name))
     }
 
     /// Bars of a symbol/timeframe, oldest first: real history when the symbol has it,
@@ -310,7 +375,9 @@ impl Market {
         if !self.series.contains_key(&(sym, tf)) {
             let real = match self.symbols[sym].source {
                 Source::Simulated => None,
-                _ => crate::history::load(self.symbols[sym].spec.name, tf).filter(|b| !b.is_empty()),
+                _ => {
+                    crate::history::load(self.symbols[sym].spec.name, tf).filter(|b| !b.is_empty())
+                }
             };
             let bars = real.unwrap_or_else(|| self.generate_history(sym, tf));
             self.series.insert((sym, tf), bars);
@@ -380,10 +447,19 @@ impl Market {
             self.symbols[i].source = Source::History;
         }
         // current price and day range from the newest real bars
-        let finest = Timeframe::ALL.iter().find_map(|tf| crate::history::load(name, *tf).filter(|b| !b.is_empty()).map(|b| b.last().copied().unwrap()));
+        let finest = Timeframe::ALL.iter().find_map(|tf| {
+            crate::history::load(name, *tf)
+                .filter(|b| !b.is_empty())
+                .map(|b| b.last().copied().unwrap())
+        });
         if let Some(last) = finest {
             let s = &mut self.symbols[i];
-            let spread = (if last.spread > 0 { last.spread } else { s.spec.spread_points }) as f64 * s.spec.point();
+            let spread = (if last.spread > 0 {
+                last.spread
+            } else {
+                s.spec.spread_points
+            }) as f64
+                * s.spec.point();
             s.bid = last.close;
             s.prev_bid = last.close;
             s.ask = round_to(last.close + spread, s.spec.digits);
@@ -399,7 +475,12 @@ impl Market {
 
     /// Start live quotes for every symbol that has a public price source.
     pub fn start_live(&mut self) -> usize {
-        let list: Vec<(String, u32)> = self.symbols.iter().filter(|s| crate::feed::pair_for(s.spec.name).is_some()).map(|s| (s.spec.name.to_string(), s.spec.digits)).collect();
+        let list: Vec<(String, u32)> = self
+            .symbols
+            .iter()
+            .filter(|s| crate::feed::pair_for(s.spec.name).is_some())
+            .map(|s| (s.spec.name.to_string(), s.spec.digits))
+            .collect();
         let n = list.len();
         if n > 0 {
             self.feed_status = "connecting to live prices...".into();
@@ -412,7 +493,11 @@ impl Market {
         self.feed = None;
         for s in self.symbols.iter_mut() {
             if s.source == Source::Live {
-                s.source = if crate::history::has_history(s.spec.name) { Source::History } else { Source::Simulated };
+                s.source = if crate::history::has_history(s.spec.name) {
+                    Source::History
+                } else {
+                    Source::Simulated
+                };
             }
         }
         self.feed_status = "live prices off".into();
@@ -444,13 +529,21 @@ impl Market {
                             if tf == Timeframe::M1 {
                                 s.bid = last.close;
                                 s.prev_bid = last.close;
-                                s.ask = round_to(last.close + s.spec.spread_points as f64 * s.spec.point(), s.spec.digits);
+                                s.ask = round_to(
+                                    last.close + s.spec.spread_points as f64 * s.spec.point(),
+                                    s.spec.digits,
+                                );
                             }
                         }
                         self.series.insert((i, tf), bars);
                     }
                 }
-                crate::feed::FeedMsg::Quote { symbol, bid, ask, time } => {
+                crate::feed::FeedMsg::Quote {
+                    symbol,
+                    bid,
+                    ask,
+                    time,
+                } => {
                     if let Some(i) = self.symbol_index(&symbol) {
                         self.symbols[i].source = Source::Live;
                         if self.apply_quote(i, bid, ask, time) {
@@ -458,7 +551,9 @@ impl Market {
                         }
                     }
                 }
-                crate::feed::FeedMsg::Status(s) | crate::feed::FeedMsg::Error(s) => self.feed_status = s,
+                crate::feed::FeedMsg::Status(s) | crate::feed::FeedMsg::Error(s) => {
+                    self.feed_status = s
+                }
             }
         }
         ticked
@@ -495,7 +590,8 @@ impl Market {
         let spec = &s.spec;
         let secs = tf.secs();
         let last_open = self.now - self.now.rem_euclid(secs);
-        let mut rng = Rng::new((sym as u64 + 1) * 7919 + secs as u64 * 31 + (self.now / 86400) as u64);
+        let mut rng =
+            Rng::new((sym as u64 + 1) * 7919 + secs as u64 * 31 + (self.now / 86400) as u64);
         let minutes = secs as f64 / 60.0;
         let sigma = spec.vol_per_min * minutes.sqrt();
         let n = HISTORY_BARS;
@@ -630,7 +726,11 @@ pub fn fmt_time(t: i64, with_secs: bool) -> String {
 pub fn civil(t: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = t.div_euclid(86400);
     let rem = t.rem_euclid(86400);
-    let (h, mi, s) = ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32);
+    let (h, mi, s) = (
+        (rem / 3600) as u32,
+        ((rem % 3600) / 60) as u32,
+        (rem % 60) as u32,
+    );
     // civil from days (Howard Hinnant)
     let z = days + 719468;
     let era = z.div_euclid(146097);
@@ -656,24 +756,52 @@ pub fn spec_from_info(info: &crate::history::SymbolInfo) -> SymbolSpec {
     } else if info.currency_base.eq_ignore_ascii_case("USD") {
         ProfitCalc::BaseUsd
     } else if info.tick_value > 0.0 && info.tick_size > 0.0 {
-        ProfitCalc::TickValue { tick_value: info.tick_value, tick_size: info.tick_size }
+        ProfitCalc::TickValue {
+            tick_value: info.tick_value,
+            tick_size: info.tick_size,
+        }
     } else {
         ProfitCalc::QuoteUsd
     };
-    let known = default_symbols().into_iter().find(|s| s.name.eq_ignore_ascii_case(&info.name));
+    let known = default_symbols()
+        .into_iter()
+        .find(|s| s.name.eq_ignore_ascii_case(&info.name));
     let vol = known.as_ref().map(|k| k.vol_per_min).unwrap_or(0.00015);
     SymbolSpec {
-        name: known.as_ref().map(|k| k.name).unwrap_or_else(|| leak(&info.name)),
-        description: if info.description.is_empty() { known.as_ref().map(|k| k.description).unwrap_or("") } else { leak(&info.description) },
+        name: known
+            .as_ref()
+            .map(|k| k.name)
+            .unwrap_or_else(|| leak(&info.name)),
+        description: if info.description.is_empty() {
+            known.as_ref().map(|k| k.description).unwrap_or("")
+        } else {
+            leak(&info.description)
+        },
         digits: info.digits,
-        contract_size: if info.contract_size > 0.0 { info.contract_size } else { 100000.0 },
+        contract_size: if info.contract_size > 0.0 {
+            info.contract_size
+        } else {
+            100000.0
+        },
         start_price: info.bid,
         vol_per_min: vol,
         spread_points: if info.spread > 0 { info.spread } else { 10 },
         calc,
-        volume_min: if info.volume_min > 0.0 { info.volume_min } else { 0.01 },
-        volume_step: if info.volume_step > 0.0 { info.volume_step } else { 0.01 },
-        volume_max: if info.volume_max > 0.0 { info.volume_max } else { 100.0 },
+        volume_min: if info.volume_min > 0.0 {
+            info.volume_min
+        } else {
+            0.01
+        },
+        volume_step: if info.volume_step > 0.0 {
+            info.volume_step
+        } else {
+            0.01
+        },
+        volume_max: if info.volume_max > 0.0 {
+            info.volume_max
+        } else {
+            100.0
+        },
     }
 }
 
@@ -692,13 +820,29 @@ fn guess_info(name: &str, bars: &[Bar]) -> crate::history::SymbolInfo {
         .unwrap_or(5)
         .min(8);
     let upper = name.to_ascii_uppercase();
-    let (base, profit) = if upper.len() >= 6 { (upper[0..3].to_string(), upper[3..6].to_string()) } else { (String::new(), "USD".to_string()) };
-    let spread = bars.iter().rev().take(50).map(|b| b.spread).max().unwrap_or(0);
+    let (base, profit) = if upper.len() >= 6 {
+        (upper[0..3].to_string(), upper[3..6].to_string())
+    } else {
+        (String::new(), "USD".to_string())
+    };
+    let spread = bars
+        .iter()
+        .rev()
+        .take(50)
+        .map(|b| b.spread)
+        .max()
+        .unwrap_or(0);
     crate::history::SymbolInfo {
         name: upper.clone(),
         description: String::new(),
         digits,
-        contract_size: if upper.starts_with("XAU") { 100.0 } else if upper.len() == 6 { 100000.0 } else { 1.0 },
+        contract_size: if upper.starts_with("XAU") {
+            100.0
+        } else if upper.len() == 6 {
+            100000.0
+        } else {
+            1.0
+        },
         volume_min: 0.01,
         volume_max: 100.0,
         volume_step: 0.01,

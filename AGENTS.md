@@ -27,6 +27,7 @@ Run everything from this directory (`app/`, where `Cargo.toml` lives).
 ```sh
 cargo build                     # debug build (opt-level 1, deps at 2)
 cargo run                       # start the GUI (live crypto prices start; RUST_TERMINAL_OFFLINE=1 to skip)
+cargo run -- mcp                # MCP server for coding agents on stdio (no window), see docs/MCP.md
 cargo run -- --screenshot out.png   # open window, capture after ~120 frames to PNG, exit (needs a display)
 cargo test                      # unit tests (must stay green, no network)
 cargo clippy --all-targets      # lint
@@ -78,6 +79,9 @@ src/
   tester.rs      strategy tester engine (TestRun, TickMode)
   tester_ui.rs   strategy tester panel and report
   storage.rs     data folder, MQL5 folder layout, accounts.json persistence
+  mcp.rs         MCP server (`rust-terminal mcp`, JSON-RPC over stdio, headless): tools to
+                 write/compile/run indicators & EAs, back-test, analyse charts (docs/MCP.md)
+  mcp_chart.rs   headless PNG chart renderer used by the `chart_image` tool
   samples.rs     bundled example .mq5 programs + New-file templates
   style.rs       colours / theme
   tests.rs       unit tests (cfg(test))
@@ -117,6 +121,8 @@ shots/           reference screenshots
 
 ## Rules
 
+- MCP server (`mcp.rs`): stdout carries only JSON-RPC lines — never `println!` on that path; tool
+  failures are `isError` results, not protocol errors. Writes stay inside the MQL5 folder.
 - Keep `cargo build` warning-light and `cargo test` passing before you finish.
 - The interpreter must not panic on user code: runtime problems become MQL runtime errors
   ("zero divide", "array out of range", endless-loop guard at 30,000,000 statements) and stop the

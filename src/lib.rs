@@ -14,9 +14,11 @@ mod history;
 mod host;
 mod indicators;
 mod indicators_ext;
-mod mt5ind;
 mod market;
+mod mcp;
+mod mcp_chart;
 mod mql;
+mod mt5ind;
 mod objects;
 mod samples;
 mod storage;
@@ -29,10 +31,19 @@ mod ui;
 
 use std::path::PathBuf;
 
+/// Run the MCP server on stdin/stdout (no window): `rust-terminal mcp`.
+pub fn run_mcp() {
+    mcp::run()
+}
+
 /// Start the desktop application.
 pub fn run_desktop() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let screenshot = args.iter().position(|a| a == "--screenshot").and_then(|i| args.get(i + 1)).map(PathBuf::from);
+    let screenshot = args
+        .iter()
+        .position(|a| a == "--screenshot")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from);
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Rust Terminal — Simulated-Demo")
@@ -41,7 +52,11 @@ pub fn run_desktop() -> eframe::Result<()> {
     if let Ok(img) = image::load_from_memory(include_bytes!("../assets/icon-256.png")) {
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
-        viewport = viewport.with_icon(egui::IconData { rgba: rgba.into_raw(), width: w, height: h });
+        viewport = viewport.with_icon(egui::IconData {
+            rgba: rgba.into_raw(),
+            width: w,
+            height: h,
+        });
     }
     if screenshot.is_some() {
         viewport = viewport.with_active(false);
@@ -50,7 +65,10 @@ pub fn run_desktop() -> eframe::Result<()> {
             viewport = viewport.with_window_level(egui::WindowLevel::AlwaysOnBottom);
         }
     }
-    let mut options = eframe::NativeOptions { viewport, ..Default::default() };
+    let mut options = eframe::NativeOptions {
+        viewport,
+        ..Default::default()
+    };
     #[cfg(target_os = "macos")]
     if screenshot.is_some() {
         options.event_loop_builder = Some(Box::new(|builder| {
@@ -60,19 +78,34 @@ pub fn run_desktop() -> eframe::Result<()> {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = &mut options;
-    eframe::run_native("Rust Terminal", options, Box::new(move |cc| Ok(Box::new(app::TerminalApp::new(cc, screenshot)))))
+    eframe::run_native(
+        "Rust Terminal",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::TerminalApp::new(cc, screenshot)))),
+    )
 }
 
 /// Android entry point (NativeActivity). Data lives in the app's internal storage.
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
-    android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("RustTerminal"));
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("RustTerminal"),
+    );
     if let Some(p) = app.internal_data_path() {
         std::env::set_var("RUST_TERMINAL_DATA", p);
     }
-    let options = eframe::NativeOptions { android_app: Some(app), ..Default::default() };
-    if let Err(e) = eframe::run_native("Rust Terminal", options, Box::new(|cc| Ok(Box::new(app::TerminalApp::new(cc, None))))) {
+    let options = eframe::NativeOptions {
+        android_app: Some(app),
+        ..Default::default()
+    };
+    if let Err(e) = eframe::run_native(
+        "Rust Terminal",
+        options,
+        Box::new(|cc| Ok(Box::new(app::TerminalApp::new(cc, None)))),
+    ) {
         log::error!("{}", e);
     }
 }

@@ -7,13 +7,21 @@ pub fn data_dir() -> PathBuf {
     if let Ok(p) = std::env::var("RUST_TERMINAL_DATA") {
         return PathBuf::from(p);
     }
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".into());
     let base = if cfg!(target_os = "windows") {
-        std::env::var("APPDATA").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(&home))
+        std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(&home))
     } else if cfg!(target_os = "macos") {
-        PathBuf::from(&home).join("Library").join("Application Support")
+        PathBuf::from(&home)
+            .join("Library")
+            .join("Application Support")
     } else {
-        std::env::var("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(&home).join(".local").join("share"))
+        std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(&home).join(".local").join("share"))
     };
     base.join("RustTerminal")
 }
@@ -60,18 +68,37 @@ pub fn list_programs(folder: &str) -> Vec<ProgramFile> {
 }
 
 fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<ProgramFile>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() && depth < 2 {
             walk(root, &p, depth + 1, out);
             continue;
         }
-        let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+        let ext = p
+            .extension()
+            .and_then(|x| x.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if ext == "mq5" || ext == "ex5" {
-            let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/");
-            let name = p.file_stem().and_then(|x| x.to_str()).unwrap_or("").to_string();
-            out.push(ProgramFile { name, rel, path: p.clone(), ex5: ext == "ex5" });
+            let rel = p
+                .strip_prefix(root)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let name = p
+                .file_stem()
+                .and_then(|x| x.to_str())
+                .unwrap_or("")
+                .to_string();
+            out.push(ProgramFile {
+                name,
+                rel,
+                path: p.clone(),
+                ex5: ext == "ex5",
+            });
         }
     }
 }
@@ -81,11 +108,17 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<ProgramFile>) {
 /// (with or without BOM), otherwise Windows-1252.
 pub fn decode_source(b: &[u8]) -> String {
     if b.len() >= 2 && b[0] == 0xFF && b[1] == 0xFE {
-        let u: Vec<u16> = b[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let u: Vec<u16> = b[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
         return String::from_utf16_lossy(&u);
     }
     if b.len() >= 2 && b[0] == 0xFE && b[1] == 0xFF {
-        let u: Vec<u16> = b[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let u: Vec<u16> = b[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
         return String::from_utf16_lossy(&u);
     }
     let b = b.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(b);

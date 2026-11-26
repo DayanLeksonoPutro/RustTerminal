@@ -81,7 +81,11 @@ impl Instance {
     /// Store copied series data (oldest first). An indicator buffer keeps its size and
     /// receives the values at its newest end; a static array is filled from the start.
     pub(super) fn set_array_chrono(&self, arr: &ArrRef, data: Vec<Value>) {
-        let is_buffer = self.buffers.iter().flatten().any(|(b, _)| Rc::ptr_eq(b, arr));
+        let is_buffer = self
+            .buffers
+            .iter()
+            .flatten()
+            .any(|(b, _)| Rc::ptr_eq(b, arr));
         let mut a = arr.borrow_mut();
         if is_buffer {
             let n = a.data.len();
@@ -103,11 +107,25 @@ impl Instance {
         if !host.algo_allowed() {
             host.print("automated trading is disabled");
             self.last_error = 4109;
-            return TradeResult { retcode: RET_AT_DISABLED, order: 0, deal: 0, price: 0.0, volume: 0.0, comment: "AutoTrading disabled by client".into() };
+            return TradeResult {
+                retcode: RET_AT_DISABLED,
+                order: 0,
+                deal: 0,
+                price: 0.0,
+                volume: 0.0,
+                comment: "AutoTrading disabled by client".into(),
+            };
         }
         if self.prog.kind == ProgramKind::Indicator {
             self.last_error = 4109;
-            return TradeResult { retcode: 10017, order: 0, deal: 0, price: 0.0, volume: 0.0, comment: "Trade is not allowed for indicators".into() };
+            return TradeResult {
+                retcode: 10017,
+                order: 0,
+                deal: 0,
+                price: 0.0,
+                volume: 0.0,
+                comment: "Trade is not allowed for indicators".into(),
+            };
         }
         let r = host.trade(op);
         if r.retcode != RET_DONE {
@@ -118,19 +136,38 @@ impl Instance {
 
     pub(super) fn position(&self, host: &dyn Host, ticket: Option<u64>) -> Option<Position> {
         let t = ticket?;
-        host.account().positions.iter().find(|p| p.ticket == t).cloned()
+        host.account()
+            .positions
+            .iter()
+            .find(|p| p.ticket == t)
+            .cloned()
     }
     pub(super) fn order(&self, host: &dyn Host, ticket: Option<u64>) -> Option<PendingOrder> {
         let t = ticket?;
-        host.account().orders.iter().find(|o| o.ticket == t).cloned()
+        host.account()
+            .orders
+            .iter()
+            .find(|o| o.ticket == t)
+            .cloned()
     }
 
-    pub(super) fn with_bars<T>(&self, host: &mut dyn Host, sym: &str, tf: Timeframe, f: impl FnOnce(&[Bar]) -> T) -> Option<T> {
+    pub(super) fn with_bars<T>(
+        &self,
+        host: &mut dyn Host,
+        sym: &str,
+        tf: Timeframe,
+        f: impl FnOnce(&[Bar]) -> T,
+    ) -> Option<T> {
         host.bars(sym, tf).map(f)
     }
 
     /// Copy `count` elements starting `start` bars back from the newest, oldest first.
-    pub(super) fn copy_series(&mut self, host: &mut dyn Host, a: &[Value], get: fn(&Bar) -> Value) -> R<Value> {
+    pub(super) fn copy_series(
+        &mut self,
+        host: &mut dyn Host,
+        a: &[Value],
+        get: fn(&Bar) -> Value,
+    ) -> R<Value> {
         let sym = self.sym_arg(a.first());
         let tf = self.tf_arg(a.get(1));
         let start = arg_i(a, 2, 0);
@@ -180,7 +217,12 @@ impl Instance {
     fn builtin_handle(&mut self, a: &[Value], kind: IndKind, params: IndParams) -> Value {
         let symbol = self.sym_arg(a.first());
         let tf = self.tf_arg(a.get(1));
-        self.add_handle(Handle::Builtin { kind, params, symbol, tf })
+        self.add_handle(Handle::Builtin {
+            kind,
+            params,
+            symbol,
+            tf,
+        })
     }
 
     fn handle_buffer(&mut self, host: &mut dyn Host, h: i64, buf: usize) -> R<Option<Vec<f64>>> {
@@ -190,18 +232,47 @@ impl Instance {
         }
         let mut handle = self.handles[idx].take();
         let result = match &mut handle {
-            Some(Handle::Builtin { kind, params, symbol, tf }) => {
+            Some(Handle::Builtin {
+                kind,
+                params,
+                symbol,
+                tf,
+            }) => {
                 let (k, p, s, t) = (*kind, *params, symbol.clone(), *tf);
                 self.with_bars(host, &s, t, |bars| crate::mt5ind::builtin(k, &p, bars))
-                    .and_then(|mut v| if buf < v.len() { Some(v.swap_remove(buf)) } else { None })
+                    .and_then(|mut v| {
+                        if buf < v.len() {
+                            Some(v.swap_remove(buf))
+                        } else {
+                            None
+                        }
+                    })
             }
-            Some(Handle::Ext { kind, params, symbol, tf }) => {
+            Some(Handle::Ext {
+                kind,
+                params,
+                symbol,
+                tf,
+            }) => {
                 let (k, p, s, t) = (*kind, params.clone(), symbol.clone(), *tf);
                 let point = host.quote(&s).map(|q| q.spec.point()).unwrap_or(0.0);
-                self.with_bars(host, &s, t, |bars| crate::mt5ind::ext(k, &p, bars, point).unwrap_or_else(|| crate::indicators_ext::compute(k, &p, bars)))
-                    .and_then(|mut v| if buf < v.len() { Some(v.swap_remove(buf)) } else { None })
+                self.with_bars(host, &s, t, |bars| {
+                    crate::mt5ind::ext(k, &p, bars, point)
+                        .unwrap_or_else(|| crate::indicators_ext::compute(k, &p, bars))
+                })
+                .and_then(|mut v| {
+                    if buf < v.len() {
+                        Some(v.swap_remove(buf))
+                    } else {
+                        None
+                    }
+                })
             }
-            Some(Handle::Custom { inst: Some(child), symbol, tf }) => {
+            Some(Handle::Custom {
+                inst: Some(child),
+                symbol,
+                tf,
+            }) => {
                 let bars: Option<Vec<Bar>> = host.bars(symbol, *tf).map(|b| b.to_vec());
                 match bars {
                     Some(bars) => match child.calculate_on(&bars, host) {
@@ -236,7 +307,10 @@ impl Instance {
         if let Some(s) = field {
             let name = self.sym(s);
             // a constant written directly
-            if self.lookup(s).is_none() && !self.this_has_field(s) && (self.prog.enum_consts.contains_key(&s) || builtins::constant(name).is_some()) {
+            if self.lookup(s).is_none()
+                && !self.this_has_field(s)
+                && (self.prog.enum_consts.contains_key(&s) || builtins::constant(name).is_some())
+            {
                 return name.to_string();
             }
             if let Some(en) = self.prog.var_enums.get(&s) {
@@ -253,11 +327,20 @@ impl Instance {
         v.to_string()
     }
 
-    pub(super) fn call_builtin(&mut self, name: &str, args: &[Expr], host: &mut dyn Host) -> R<Value> {
+    pub(super) fn call_builtin(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        host: &mut dyn Host,
+    ) -> R<Value> {
         // functions that write back into a variable argument
         match name {
-            "StringReplace" | "StringToUpper" | "StringToLower" | "StringTrimLeft" | "StringTrimRight" | "StringAdd" | "StringConcatenate" => {
-                let target = args.first().ok_or_else(|| self.err("wrong parameters count"))?.clone();
+            "StringReplace" | "StringToUpper" | "StringToLower" | "StringTrimLeft"
+            | "StringTrimRight" | "StringAdd" | "StringConcatenate" => {
+                let target = args
+                    .first()
+                    .ok_or_else(|| self.err("wrong parameters count"))?
+                    .clone();
                 let a = self.eval_args(args, host)?;
                 let s = arg_s(&a, 0);
                 let (new, ret) = match name {
@@ -293,7 +376,10 @@ impl Instance {
                 return Ok(ret);
             }
             "StringSetCharacter" | "StringInit" | "StringFill" => {
-                let target = args.first().ok_or_else(|| self.err("wrong parameters count"))?.clone();
+                let target = args
+                    .first()
+                    .ok_or_else(|| self.err("wrong parameters count"))?
+                    .clone();
                 let a = self.eval_args(args, host)?;
                 let s = arg_s(&a, 0);
                 let (new, ret) = match name {
@@ -308,16 +394,29 @@ impl Instance {
                         } else {
                             return Ok(vb(false));
                         }
-                        (cs.into_iter().filter(|c| *c != '\0').collect::<String>(), vb(true))
+                        (
+                            cs.into_iter().filter(|c| *c != '\0').collect::<String>(),
+                            vb(true),
+                        )
                     }
                     "StringInit" => {
                         let n = arg_i(&a, 1, 0).max(0) as usize;
                         let ch = char::from_u32(arg_i(&a, 2, 0) as u32).unwrap_or('\0');
-                        (if ch == '\0' { String::new() } else { std::iter::repeat(ch).take(n).collect() }, vb(true))
+                        (
+                            if ch == '\0' {
+                                String::new()
+                            } else {
+                                std::iter::repeat(ch).take(n).collect()
+                            },
+                            vb(true),
+                        )
                     }
                     _ => {
                         let ch = char::from_u32(arg_i(&a, 1, 0) as u32).unwrap_or(' ');
-                        (std::iter::repeat(ch).take(s.chars().count()).collect(), vb(true))
+                        (
+                            std::iter::repeat(ch).take(s.chars().count()).collect(),
+                            vb(true),
+                        )
                     }
                 };
                 self.assign(&target, Value::str(&new), host)?;
@@ -353,7 +452,12 @@ impl Instance {
         self.call_builtin_values(name, &a, host)
     }
 
-    pub(super) fn call_builtin_values(&mut self, name: &str, a: &[Value], host: &mut dyn Host) -> R<Value> {
+    pub(super) fn call_builtin_values(
+        &mut self,
+        name: &str,
+        a: &[Value],
+        host: &mut dyn Host,
+    ) -> R<Value> {
         Ok(match name {
             "__comma" => a.last().cloned().unwrap_or(Value::Void),
             // ---------- output ----------
@@ -388,7 +492,10 @@ impl Instance {
             "IntegerToString" => {
                 let v = arg_i(a, 0, 0).to_string();
                 let len = arg_i(a, 1, 0).max(0) as usize;
-                let fill = a.get(2).map(|f| char::from_u32(f.as_i64() as u32).unwrap_or(' ')).unwrap_or(' ');
+                let fill = a
+                    .get(2)
+                    .map(|f| char::from_u32(f.as_i64() as u32).unwrap_or(' '))
+                    .unwrap_or(' ');
                 let mut s = String::new();
                 while s.chars().count() + v.len() < len {
                     s.push(fill);
@@ -417,10 +524,19 @@ impl Instance {
                 Value::str(&out)
             }
             "StringToTime" => vi(crate::mql::lexer::parse_datetime(&arg_s(a, 0)).unwrap_or(0)),
-            "CharToString" | "ShortToString" => Value::str(&char::from_u32(arg_i(a, 0, 0) as u32).map(|c| c.to_string()).unwrap_or_default()),
+            "CharToString" | "ShortToString" => Value::str(
+                &char::from_u32(arg_i(a, 0, 0) as u32)
+                    .map(|c| c.to_string())
+                    .unwrap_or_default(),
+            ),
             "ColorToString" => {
                 let c = arg_i(a, 0, 0);
-                Value::str(&format!("{},{},{}", c & 0xff, (c >> 8) & 0xff, (c >> 16) & 0xff))
+                Value::str(&format!(
+                    "{},{},{}",
+                    c & 0xff,
+                    (c >> 8) & 0xff,
+                    (c >> 16) & 0xff
+                ))
             }
             "NormalizeDouble" => {
                 let m = 10f64.powi(arg_i(a, 1, 0).clamp(0, 16) as i32);
@@ -468,15 +584,26 @@ impl Instance {
                 let s: Vec<char> = arg_s(a, 0).chars().collect();
                 let st = arg_i(a, 1, 0).max(0) as usize;
                 let len = arg_i(a, 2, -1);
-                let end = if len < 0 { s.len() } else { (st + len as usize).min(s.len()) };
-                Value::str(&if st < s.len() { s[st..end].iter().collect::<String>() } else { String::new() })
+                let end = if len < 0 {
+                    s.len()
+                } else {
+                    (st + len as usize).min(s.len())
+                };
+                Value::str(&if st < s.len() {
+                    s[st..end].iter().collect::<String>()
+                } else {
+                    String::new()
+                })
             }
             "StringFind" => {
                 let s = arg_s(a, 0);
                 let f = arg_s(a, 1);
                 let st = arg_i(a, 2, 0).max(0) as usize;
                 let tail: String = s.chars().skip(st).collect();
-                vi(tail.find(&f).map(|p| (tail[..p].chars().count() + st) as i64).unwrap_or(-1))
+                vi(tail
+                    .find(&f)
+                    .map(|p| (tail[..p].chars().count() + st) as i64)
+                    .unwrap_or(-1))
             }
             "StringSplit" => {
                 let s = arg_s(a, 0);
@@ -499,7 +626,11 @@ impl Instance {
                     std::cmp::Ordering::Greater => 1,
                 })
             }
-            "StringGetCharacter" => vi(arg_s(a, 0).chars().nth(arg_i(a, 1, 0).max(0) as usize).map(|c| c as i64).unwrap_or(0)),
+            "StringGetCharacter" => vi(arg_s(a, 0)
+                .chars()
+                .nth(arg_i(a, 1, 0).max(0) as usize)
+                .map(|c| c as i64)
+                .unwrap_or(0)),
             // ---------- arrays ----------
             "ArraySize" => match a.first() {
                 Some(Value::Arr(arr)) => {
@@ -513,7 +644,11 @@ impl Instance {
                 let arr = self.arr_of(a.first().unwrap_or(&Value::Void))?;
                 let d = arg_i(a, 1, 0) as usize;
                 let ab = arr.borrow();
-                vi(if d == 0 { ab.data.len() as i64 } else { ab.inner.get(d - 1).copied().unwrap_or(0) as i64 })
+                vi(if d == 0 {
+                    ab.data.len() as i64
+                } else {
+                    ab.inner.get(d - 1).copied().unwrap_or(0) as i64
+                })
             }
             "ArrayResize" => {
                 let arr = self.arr_of(a.first().unwrap_or(&Value::Void))?;
@@ -566,8 +701,12 @@ impl Instance {
                     vb(false)
                 }
             }
-            "ArrayGetAsSeries" | "ArrayIsSeries" => vb(matches!(a.first(), Some(Value::Arr(arr)) if arr.borrow().series)),
-            "ArrayIsDynamic" => vb(matches!(a.first(), Some(Value::Arr(arr)) if arr.borrow().dynamic)),
+            "ArrayGetAsSeries" | "ArrayIsSeries" => {
+                vb(matches!(a.first(), Some(Value::Arr(arr)) if arr.borrow().series))
+            }
+            "ArrayIsDynamic" => {
+                vb(matches!(a.first(), Some(Value::Arr(arr)) if arr.borrow().dynamic))
+            }
             "ArrayCopy" => {
                 let dst = self.arr_of(a.first().unwrap_or(&Value::Void))?;
                 let src = self.arr_of(a.get(1).unwrap_or(&Value::Void))?;
@@ -578,9 +717,17 @@ impl Instance {
                     let s = src.borrow();
                     (s.data.clone(), s.series)
                 };
-                let logical: Vec<Value> = if sseries { sdata.into_iter().rev().collect() } else { sdata };
+                let logical: Vec<Value> = if sseries {
+                    sdata.into_iter().rev().collect()
+                } else {
+                    sdata
+                };
                 let avail = logical.len().saturating_sub(ss);
-                let take = if cnt < 0 { avail } else { (cnt as usize).min(avail) };
+                let take = if cnt < 0 {
+                    avail
+                } else {
+                    (cnt as usize).min(avail)
+                };
                 let elem = dst.borrow().elem.clone();
                 let def = self.default_value(&elem);
                 let mut d = dst.borrow_mut();
@@ -603,7 +750,11 @@ impl Instance {
                 let len = ab.data.len();
                 let st = arg_i(a, 1, 0).max(0) as usize;
                 let cnt = arg_i(a, 2, -1);
-                let end = if cnt < 0 { len } else { (st + cnt as usize).min(len) };
+                let end = if cnt < 0 {
+                    len
+                } else {
+                    (st + cnt as usize).min(len)
+                };
                 let mut best: Option<(usize, f64)> = None;
                 for k in st..end {
                     let p = if ab.series { len - 1 - k } else { k };
@@ -630,7 +781,11 @@ impl Instance {
                     if matches!(ab.elem, Ty::Str) {
                         ab.data.sort_by_key(|x| x.to_text());
                     } else {
-                        ab.data.sort_by(|x, y| x.as_f64().partial_cmp(&y.as_f64()).unwrap_or(std::cmp::Ordering::Equal));
+                        ab.data.sort_by(|x, y| {
+                            x.as_f64()
+                                .partial_cmp(&y.as_f64())
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        });
                     }
                 }
                 vb(true)
@@ -668,7 +823,11 @@ impl Instance {
             "GetPointer" => a.first().cloned().unwrap_or(vi(0)),
             // ---------- time ----------
             "TimeCurrent" | "TimeTradeServer" => vi(host.now()),
-            "TimeLocal" | "TimeGMT" => vi(if host.is_tester() { host.now() } else { crate::market::unix_now() }),
+            "TimeLocal" | "TimeGMT" => vi(if host.is_tester() {
+                host.now()
+            } else {
+                crate::market::unix_now()
+            }),
             "TimeToStruct" => {
                 let t = arg_i(a, 0, 0);
                 if let Some(s) = a.get(1) {
@@ -689,22 +848,38 @@ impl Instance {
             "StructToTime" => {
                 let s = a.first().cloned().unwrap_or(Value::Void);
                 let g = |f: &str| self.struct_get(&s, f).as_i64();
-                vi(crate::mql::lexer::days_from_civil(g("year"), g("mon"), g("day")) * 86400 + g("hour") * 3600 + g("min") * 60 + g("sec"))
+                vi(
+                    crate::mql::lexer::days_from_civil(g("year"), g("mon"), g("day")) * 86400
+                        + g("hour") * 3600
+                        + g("min") * 60
+                        + g("sec"),
+                )
             }
-            "GetTickCount" => vi((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0) & 0xffff_ffff) as i64),
-            "GetMicrosecondCount" => vi(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0)),
+            "GetTickCount" => vi((std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+                & 0xffff_ffff) as i64),
+            "GetMicrosecondCount" => vi(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_micros() as i64)
+                .unwrap_or(0)),
             // ---------- series ----------
             "Bars" | "iBars" => {
                 let sym = self.sym_arg(a.first());
                 let tf = self.tf_arg(a.get(1));
-                vi(self.with_bars(host, &sym, tf, |b| b.len() as i64).unwrap_or(0))
+                vi(self
+                    .with_bars(host, &sym, tf, |b| b.len() as i64)
+                    .unwrap_or(0))
             }
             "iClose" => vd(self.bar_at(host, a).map(|b| b.close).unwrap_or(0.0)),
             "iOpen" => vd(self.bar_at(host, a).map(|b| b.open).unwrap_or(0.0)),
             "iHigh" => vd(self.bar_at(host, a).map(|b| b.high).unwrap_or(0.0)),
             "iLow" => vd(self.bar_at(host, a).map(|b| b.low).unwrap_or(0.0)),
             "iTime" => vi(self.bar_at(host, a).map(|b| b.time).unwrap_or(0)),
-            "iVolume" | "iTickVolume" => vi(self.bar_at(host, a).map(|b| b.tick_volume).unwrap_or(0)),
+            "iVolume" | "iTickVolume" => {
+                vi(self.bar_at(host, a).map(|b| b.tick_volume).unwrap_or(0))
+            }
             "iHighest" | "iLowest" => {
                 let sym = self.sym_arg(a.first());
                 let tf = self.tf_arg(a.get(1));
@@ -810,16 +985,29 @@ impl Instance {
             // ---------- symbols ----------
             "Symbol" | "ChartSymbol" => Value::str(&self.symbol),
             "Period" | "ChartPeriod" => vi(self.tf.mql_value()),
-            "Point" => vd(host.quote(&self.symbol).map(|q| q.spec.point()).unwrap_or(0.00001)),
-            "Digits" => vi(host.quote(&self.symbol).map(|q| q.spec.digits as i64).unwrap_or(5)),
+            "Point" => vd(host
+                .quote(&self.symbol)
+                .map(|q| q.spec.point())
+                .unwrap_or(0.00001)),
+            "Digits" => vi(host
+                .quote(&self.symbol)
+                .map(|q| q.spec.digits as i64)
+                .unwrap_or(5)),
             "SymbolInfoDouble" => {
                 let sym = self.sym_arg(a.first());
                 match host.quote(&sym) {
                     Some(q) => {
                         let tick_value = match q.spec.calc {
-                            crate::market::ProfitCalc::QuoteUsd => q.spec.contract_size * q.spec.point(),
-                            crate::market::ProfitCalc::BaseUsd => q.spec.contract_size * q.spec.point() / q.bid.max(1e-9),
-                            crate::market::ProfitCalc::TickValue { tick_value, tick_size } => {
+                            crate::market::ProfitCalc::QuoteUsd => {
+                                q.spec.contract_size * q.spec.point()
+                            }
+                            crate::market::ProfitCalc::BaseUsd => {
+                                q.spec.contract_size * q.spec.point() / q.bid.max(1e-9)
+                            }
+                            crate::market::ProfitCalc::TickValue {
+                                tick_value,
+                                tick_size,
+                            } => {
                                 if tick_size > 0.0 {
                                     tick_value * q.spec.point() / tick_size
                                 } else {
@@ -895,7 +1083,12 @@ impl Instance {
                 }
             }
             "SymbolsTotal" => vi(host.symbol_names().len() as i64),
-            "SymbolName" => Value::str(host.symbol_names().get(arg_i(a, 0, 0).max(0) as usize).map(|s| s.as_str()).unwrap_or("")),
+            "SymbolName" => Value::str(
+                host.symbol_names()
+                    .get(arg_i(a, 0, 0).max(0) as usize)
+                    .map(|s| s.as_str())
+                    .unwrap_or(""),
+            ),
             "SymbolSelect" | "RefreshRates" => vb(true),
             // ---------- account ----------
             "AccountInfoDouble" => {
@@ -970,18 +1163,48 @@ impl Instance {
                     return Ok(vb(ok));
                 }
                 let op = match action {
-                    1 if position != 0 => TradeOp::Close { ticket: position, volume: Some(volume) },
-                    1 => TradeOp::Market { symbol, buy: typ == 0, volume, sl, tp, magic, comment },
-                    5 => TradeOp::Pending { symbol, typ, volume, price, sl, tp, magic, comment },
+                    1 if position != 0 => TradeOp::Close {
+                        ticket: position,
+                        volume: Some(volume),
+                    },
+                    1 => TradeOp::Market {
+                        symbol,
+                        buy: typ == 0,
+                        volume,
+                        sl,
+                        tp,
+                        magic,
+                        comment,
+                    },
+                    5 => TradeOp::Pending {
+                        symbol,
+                        typ,
+                        volume,
+                        price,
+                        sl,
+                        tp,
+                        magic,
+                        comment,
+                    },
                     6 => {
                         let t = if position != 0 {
                             position
                         } else {
-                            host.account().positions.iter().find(|p| p.symbol == symbol).map(|p| p.ticket).unwrap_or(0)
+                            host.account()
+                                .positions
+                                .iter()
+                                .find(|p| p.symbol == symbol)
+                                .map(|p| p.ticket)
+                                .unwrap_or(0)
                         };
                         TradeOp::Modify { ticket: t, sl, tp }
                     }
-                    7 => TradeOp::ModifyOrder { ticket: order, price, sl, tp },
+                    7 => TradeOp::ModifyOrder {
+                        ticket: order,
+                        price,
+                        sl,
+                        tp,
+                    },
                     8 => TradeOp::Delete { ticket: order },
                     _ => {
                         self.struct_set(&res, "retcode", vi(10013));
@@ -1003,7 +1226,11 @@ impl Instance {
             "PositionsTotal" => vi(host.account().positions.len() as i64),
             "PositionGetTicket" => {
                 let i = arg_i(a, 0, 0);
-                let t = host.account().positions.get(i.max(0) as usize).map(|p| p.ticket);
+                let t = host
+                    .account()
+                    .positions
+                    .get(i.max(0) as usize)
+                    .map(|p| p.ticket);
                 self.select_position(t);
                 vi(t.unwrap_or(0) as i64)
             }
@@ -1015,7 +1242,12 @@ impl Instance {
             }
             "PositionSelect" => {
                 let sym = arg_s(a, 0);
-                let t = host.account().positions.iter().find(|p| p.symbol == sym).map(|p| p.ticket);
+                let t = host
+                    .account()
+                    .positions
+                    .iter()
+                    .find(|p| p.symbol == sym)
+                    .map(|p| p.ticket);
                 self.select_position(t);
                 vb(t.is_some())
             }
@@ -1041,7 +1273,11 @@ impl Instance {
             }
             "OrdersTotal" => vi(host.account().orders.len() as i64),
             "OrderGetTicket" => {
-                let t = host.account().orders.get(arg_i(a, 0, 0).max(0) as usize).map(|o| o.ticket);
+                let t = host
+                    .account()
+                    .orders
+                    .get(arg_i(a, 0, 0).max(0) as usize)
+                    .map(|o| o.ticket);
                 self.select_order(t);
                 vi(t.unwrap_or(0) as i64)
             }
@@ -1053,7 +1289,11 @@ impl Instance {
             }
             "OrderGetDouble" | "OrderGetInteger" | "OrderGetString" => {
                 let o = self.order(host, self.selected_order());
-                let bid = o.as_ref().and_then(|o| host.quote(&o.symbol)).map(|q| q.bid).unwrap_or(0.0);
+                let bid = o
+                    .as_ref()
+                    .and_then(|o| host.quote(&o.symbol))
+                    .map(|q| q.bid)
+                    .unwrap_or(0.0);
                 match o {
                     Some(o) => order_prop(&o, arg_i(a, 0, 0), name, bid),
                     None => {
@@ -1068,8 +1308,15 @@ impl Instance {
             }
             "HistorySelect" => vb(true),
             "HistoryDealsTotal" => vi(host.account().deals.len() as i64),
-            "HistoryOrdersTotal" => vi(host.account().deals.iter().filter(|d| d.order != 0).count() as i64),
-            "HistoryDealGetTicket" => vi(host.account().deals.get(arg_i(a, 0, 0).max(0) as usize).map(|d| d.ticket as i64).unwrap_or(0)),
+            "HistoryOrdersTotal" => {
+                vi(host.account().deals.iter().filter(|d| d.order != 0).count() as i64)
+            }
+            "HistoryDealGetTicket" => vi(host
+                .account()
+                .deals
+                .get(arg_i(a, 0, 0).max(0) as usize)
+                .map(|d| d.ticket as i64)
+                .unwrap_or(0)),
             "HistoryDealGetDouble" | "HistoryDealGetInteger" | "HistoryDealGetString" => {
                 let t = arg_i(a, 0, 0) as u64;
                 let d = host.account().deals.iter().find(|d| d.ticket == t).cloned();
@@ -1084,63 +1331,135 @@ impl Instance {
             }
             // ---------- indicators ----------
             "iMA" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), shift: arg_i(a, 3, 0), method: arg_i(a, 4, 0), price: arg_i(a, 5, 1), ..IndParams::defaults(IndKind::MovingAverage) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    shift: arg_i(a, 3, 0),
+                    method: arg_i(a, 4, 0),
+                    price: arg_i(a, 5, 1),
+                    ..IndParams::defaults(IndKind::MovingAverage)
+                };
                 self.builtin_handle(a, IndKind::MovingAverage, p)
             }
             "iRSI" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), price: arg_i(a, 3, 1), ..IndParams::defaults(IndKind::Rsi) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    price: arg_i(a, 3, 1),
+                    ..IndParams::defaults(IndKind::Rsi)
+                };
                 self.builtin_handle(a, IndKind::Rsi, p)
             }
             "iMACD" => {
-                let p = IndParams { p1: arg_i(a, 2, 12), p2: arg_i(a, 3, 26), p3: arg_i(a, 4, 9), price: arg_i(a, 5, 1), ..IndParams::defaults(IndKind::Macd) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 12),
+                    p2: arg_i(a, 3, 26),
+                    p3: arg_i(a, 4, 9),
+                    price: arg_i(a, 5, 1),
+                    ..IndParams::defaults(IndKind::Macd)
+                };
                 self.builtin_handle(a, IndKind::Macd, p)
             }
             "iBands" => {
-                let p = IndParams { p1: arg_i(a, 2, 20), shift: arg_i(a, 3, 0), f1: arg_f(a, 4, 2.0), price: arg_i(a, 5, 1), ..IndParams::defaults(IndKind::Bands) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 20),
+                    shift: arg_i(a, 3, 0),
+                    f1: arg_f(a, 4, 2.0),
+                    price: arg_i(a, 5, 1),
+                    ..IndParams::defaults(IndKind::Bands)
+                };
                 self.builtin_handle(a, IndKind::Bands, p)
             }
             "iStochastic" => {
-                let p = IndParams { p1: arg_i(a, 2, 5), p2: arg_i(a, 3, 3), p3: arg_i(a, 4, 3), method: arg_i(a, 5, 0), ..IndParams::defaults(IndKind::Stochastic) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 5),
+                    p2: arg_i(a, 3, 3),
+                    p3: arg_i(a, 4, 3),
+                    method: arg_i(a, 5, 0),
+                    ..IndParams::defaults(IndKind::Stochastic)
+                };
                 self.builtin_handle(a, IndKind::Stochastic, p)
             }
             "iATR" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), ..IndParams::defaults(IndKind::Atr) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    ..IndParams::defaults(IndKind::Atr)
+                };
                 self.builtin_handle(a, IndKind::Atr, p)
             }
             "iCCI" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), price: arg_i(a, 3, 6), ..IndParams::defaults(IndKind::Cci) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    price: arg_i(a, 3, 6),
+                    ..IndParams::defaults(IndKind::Cci)
+                };
                 self.builtin_handle(a, IndKind::Cci, p)
             }
             "iMomentum" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), price: arg_i(a, 3, 1), ..IndParams::defaults(IndKind::Momentum) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    price: arg_i(a, 3, 1),
+                    ..IndParams::defaults(IndKind::Momentum)
+                };
                 self.builtin_handle(a, IndKind::Momentum, p)
             }
             "iADX" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), ..IndParams::defaults(IndKind::Adx) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    ..IndParams::defaults(IndKind::Adx)
+                };
                 self.builtin_handle(a, IndKind::Adx, p)
             }
             "iEnvelopes" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), shift: arg_i(a, 3, 0), method: arg_i(a, 4, 0), price: arg_i(a, 5, 1), f1: arg_f(a, 6, 0.1), ..IndParams::defaults(IndKind::Envelopes) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    shift: arg_i(a, 3, 0),
+                    method: arg_i(a, 4, 0),
+                    price: arg_i(a, 5, 1),
+                    f1: arg_f(a, 6, 0.1),
+                    ..IndParams::defaults(IndKind::Envelopes)
+                };
                 self.builtin_handle(a, IndKind::Envelopes, p)
             }
             "iSAR" => {
-                let p = IndParams { f1: arg_f(a, 2, 0.02), f2: arg_f(a, 3, 0.2), ..IndParams::defaults(IndKind::Sar) };
+                let p = IndParams {
+                    f1: arg_f(a, 2, 0.02),
+                    f2: arg_f(a, 3, 0.2),
+                    ..IndParams::defaults(IndKind::Sar)
+                };
                 self.builtin_handle(a, IndKind::Sar, p)
             }
             "iWPR" => {
-                let p = IndParams { p1: arg_i(a, 2, 14), ..IndParams::defaults(IndKind::Wpr) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 14),
+                    ..IndParams::defaults(IndKind::Wpr)
+                };
                 self.builtin_handle(a, IndKind::Wpr, p)
             }
             "iIchimoku" => {
-                let p = IndParams { p1: arg_i(a, 2, 9), p2: arg_i(a, 3, 26), p3: arg_i(a, 4, 52), ..IndParams::defaults(IndKind::Ichimoku) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 9),
+                    p2: arg_i(a, 3, 26),
+                    p3: arg_i(a, 4, 52),
+                    ..IndParams::defaults(IndKind::Ichimoku)
+                };
                 self.builtin_handle(a, IndKind::Ichimoku, p)
             }
             "iAlligator" => {
-                let p = IndParams { p1: arg_i(a, 2, 13), p2: arg_i(a, 4, 8), p3: arg_i(a, 6, 5), method: arg_i(a, 8, 2), price: arg_i(a, 9, 5), ..IndParams::defaults(IndKind::Alligator) };
+                let p = IndParams {
+                    p1: arg_i(a, 2, 13),
+                    p2: arg_i(a, 4, 8),
+                    p3: arg_i(a, 6, 5),
+                    method: arg_i(a, 8, 2),
+                    price: arg_i(a, 9, 5),
+                    ..IndParams::defaults(IndKind::Alligator)
+                };
                 self.builtin_handle(a, IndKind::Alligator, p)
             }
-            "iFractals" => self.builtin_handle(a, IndKind::Fractals, IndParams::defaults(IndKind::Fractals)),
-            "iVolumes" => self.builtin_handle(a, IndKind::Volumes, IndParams::defaults(IndKind::Volumes)),
+            "iFractals" => {
+                self.builtin_handle(a, IndKind::Fractals, IndParams::defaults(IndKind::Fractals))
+            }
+            "iVolumes" => {
+                self.builtin_handle(a, IndKind::Volumes, IndParams::defaults(IndKind::Volumes))
+            }
             "iCustom" => {
                 let symbol = self.sym_arg(a.first());
                 let tf = self.tf_arg(a.get(1));
@@ -1154,12 +1473,17 @@ impl Instance {
                         let mut overrides = HashMap::new();
                         for (k, inp) in prog.inputs.iter().enumerate() {
                             if let Some(v) = a.get(3 + k) {
-                                overrides.insert(prog.interner.name(inp.name).to_string(), v.to_text());
+                                overrides
+                                    .insert(prog.interner.name(inp.name).to_string(), v.to_text());
                             }
                         }
                         let mut child = Instance::new(prog, &symbol, tf, &overrides);
                         match child.init(host) {
-                            Ok(_) => self.add_handle(Handle::Custom { inst: Some(Box::new(child)), symbol, tf }),
+                            Ok(_) => self.add_handle(Handle::Custom {
+                                inst: Some(Box::new(child)),
+                                symbol,
+                                tf,
+                            }),
                             Err(e) => {
                                 let m = child.fmt_err(&e);
                                 host.print(&format!("iCustom '{}': {}", pname, m));
@@ -1186,11 +1510,15 @@ impl Instance {
             "BarsCalculated" => {
                 let h = arg_i(a, 0, -1);
                 let st = match self.handles.get(h.max(0) as usize).and_then(|x| x.as_ref()) {
-                    Some(Handle::Builtin { symbol, tf, .. }) | Some(Handle::Custom { symbol, tf, .. }) | Some(Handle::Ext { symbol, tf, .. }) => Some((symbol.clone(), *tf)),
+                    Some(Handle::Builtin { symbol, tf, .. })
+                    | Some(Handle::Custom { symbol, tf, .. })
+                    | Some(Handle::Ext { symbol, tf, .. }) => Some((symbol.clone(), *tf)),
                     None => None,
                 };
                 match st {
-                    Some((s, t)) => vi(self.with_bars(host, &s, t, |b| b.len() as i64).unwrap_or(-1)),
+                    Some((s, t)) => vi(self
+                        .with_bars(host, &s, t, |b| b.len() as i64)
+                        .unwrap_or(-1)),
                     None => vi(-1),
                 }
             }
@@ -1202,19 +1530,29 @@ impl Instance {
                 let arr = self.arr_of(a.get(4).unwrap_or(&Value::Void))?;
                 let times: Vec<i64> = if start > 100_000_000 {
                     let st = match self.handles.get(h.max(0) as usize).and_then(|x| x.as_ref()) {
-                        Some(Handle::Builtin { symbol, tf, .. }) | Some(Handle::Custom { symbol, tf, .. }) | Some(Handle::Ext { symbol, tf, .. }) => Some((symbol.clone(), *tf)),
+                        Some(Handle::Builtin { symbol, tf, .. })
+                        | Some(Handle::Custom { symbol, tf, .. })
+                        | Some(Handle::Ext { symbol, tf, .. }) => Some((symbol.clone(), *tf)),
                         None => None,
                     };
-                    st.and_then(|(s, t)| self.with_bars(host, &s, t, |b| b.iter().map(|x| x.time).collect())).unwrap_or_default()
+                    st.and_then(|(s, t)| {
+                        self.with_bars(host, &s, t, |b| b.iter().map(|x| x.time).collect())
+                    })
+                    .unwrap_or_default()
                 } else {
                     vec![]
                 };
                 match self.handle_buffer(host, h, buf)? {
                     Some(data) => {
-                        let times = if times.len() == data.len() { times } else { (0..data.len() as i64).collect() };
+                        let times = if times.len() == data.len() {
+                            times
+                        } else {
+                            (0..data.len() as i64).collect()
+                        };
                         match series_range(&times, start, count) {
                             Some((o, nw)) => {
-                                let vals: Vec<Value> = data[o..=nw].iter().map(|v| vd(*v)).collect();
+                                let vals: Vec<Value> =
+                                    data[o..=nw].iter().map(|v| vd(*v)).collect();
                                 let k = vals.len() as i64;
                                 self.set_array_chrono(&arr, vals);
                                 vi(k)
@@ -1244,7 +1582,11 @@ impl Instance {
             "PlotIndexSetInteger" => {
                 let plot = arg_i(a, 0, 0).max(0) as usize;
                 let prop = arg_i(a, 1, 0);
-                let (modifier, val) = if a.len() >= 4 { (arg_i(a, 2, 0), arg_i(a, 3, 0)) } else { (0, arg_i(a, 2, 0)) };
+                let (modifier, val) = if a.len() >= 4 {
+                    (arg_i(a, 2, 0), arg_i(a, 3, 0))
+                } else {
+                    (0, arg_i(a, 2, 0))
+                };
                 self.ensure_plot(plot);
                 let p = &mut self.plots[plot];
                 match prop {
@@ -1296,7 +1638,11 @@ impl Instance {
                     5 => p.shift,
                     6 => p.style,
                     7 => p.width,
-                    9 => p.colors.get(arg_i(a, 2, 0).max(0) as usize).copied().unwrap_or(0) as i64,
+                    9 => p
+                        .colors
+                        .get(arg_i(a, 2, 0).max(0) as usize)
+                        .copied()
+                        .unwrap_or(0) as i64,
                     _ => 0,
                 })
             }
@@ -1367,9 +1713,20 @@ impl Instance {
                 objs.list.retain(|o| !o.name.starts_with(&prefix));
                 vi((n - objs.list.len()) as i64)
             }
-            "ObjectFind" => vi(if host.objects().find(&arg_s(a, 1)).is_some() { 0 } else { -1 }),
+            "ObjectFind" => vi(if host.objects().find(&arg_s(a, 1)).is_some() {
+                0
+            } else {
+                -1
+            }),
             "ObjectsTotal" => vi(host.objects().list.len() as i64),
-            "ObjectName" => Value::str(&host.objects().list.get(arg_i(a, 1, 0).max(0) as usize).map(|o| o.name.clone()).unwrap_or_default()),
+            "ObjectName" => Value::str(
+                &host
+                    .objects()
+                    .list
+                    .get(arg_i(a, 1, 0).max(0) as usize)
+                    .map(|o| o.name.clone())
+                    .unwrap_or_default(),
+            ),
             "ObjectMove" => {
                 let oname = arg_s(a, 1);
                 let pt = arg_i(a, 2, 0).clamp(0, 2) as usize;
@@ -1386,7 +1743,11 @@ impl Instance {
             "ObjectSetInteger" | "ObjectSetDouble" | "ObjectSetString" => {
                 let oname = arg_s(a, 1);
                 let prop = arg_i(a, 2, 0);
-                let (modifier, val) = if a.len() >= 5 { (arg_i(a, 3, 0), a[4].clone()) } else { (0, a.get(3).cloned().unwrap_or(Value::Void)) };
+                let (modifier, val) = if a.len() >= 5 {
+                    (arg_i(a, 3, 0), a[4].clone())
+                } else {
+                    (0, a.get(3).cloned().unwrap_or(Value::Void))
+                };
                 match host.objects().find_mut(&oname) {
                     Some(o) => {
                         set_obj_prop(o, prop, modifier, &val);
@@ -1491,7 +1852,12 @@ impl Instance {
             "GlobalVariableDel" => vb(host.global_vars().remove(&arg_s(a, 0)).is_some()),
             _ => match self.call_extra(name, a, host)? {
                 Some(v) => v,
-                None => return Err(self.err(format!("'{}' - function is not available in this terminal", name))),
+                None => {
+                    return Err(self.err(format!(
+                        "'{}' - function is not available in this terminal",
+                        name
+                    )))
+                }
             },
         })
     }
@@ -1515,7 +1881,13 @@ impl Instance {
 
     // ---------- object methods ----------
 
-    pub(super) fn call_method(&mut self, obj: &ObjRef, m: &str, args: &[Expr], host: &mut dyn Host) -> R<Value> {
+    pub(super) fn call_method(
+        &mut self,
+        obj: &ObjRef,
+        m: &str,
+        args: &[Expr],
+        host: &mut dyn Host,
+    ) -> R<Value> {
         let a = self.eval_args(args, host)?;
         let kind = obj.borrow().clone();
         match kind {
@@ -1528,7 +1900,11 @@ impl Instance {
                 };
                 match m {
                     "SelectByIndex" => {
-                        let t = host.account().positions.get(arg_i(&a, 0, 0).max(0) as usize).map(|p| p.ticket);
+                        let t = host
+                            .account()
+                            .positions
+                            .get(arg_i(&a, 0, 0).max(0) as usize)
+                            .map(|p| p.ticket);
                         set(t);
                         return Ok(vb(t.is_some()));
                     }
@@ -1540,13 +1916,23 @@ impl Instance {
                     }
                     "Select" => {
                         let s = arg_s(&a, 0);
-                        let t = host.account().positions.iter().find(|p| p.symbol == s).map(|p| p.ticket);
+                        let t = host
+                            .account()
+                            .positions
+                            .iter()
+                            .find(|p| p.symbol == s)
+                            .map(|p| p.ticket);
                         set(t);
                         return Ok(vb(t.is_some()));
                     }
                     "SelectByMagic" => {
                         let (s, mg) = (arg_s(&a, 0), arg_i(&a, 1, 0));
-                        let t = host.account().positions.iter().find(|p| p.symbol == s && p.magic == mg).map(|p| p.ticket);
+                        let t = host
+                            .account()
+                            .positions
+                            .iter()
+                            .find(|p| p.symbol == s && p.magic == mg)
+                            .map(|p| p.ticket);
                         set(t);
                         return Ok(vb(t.is_some()));
                     }
@@ -1582,7 +1968,11 @@ impl Instance {
                 };
                 match m {
                     "SelectByIndex" => {
-                        let t = host.account().orders.get(arg_i(&a, 0, 0).max(0) as usize).map(|o| o.ticket);
+                        let t = host
+                            .account()
+                            .orders
+                            .get(arg_i(&a, 0, 0).max(0) as usize)
+                            .map(|o| o.ticket);
                         set(t);
                         return Ok(vb(t.is_some()));
                     }
@@ -1647,8 +2037,16 @@ impl Instance {
             }
             ObjVal::AccInfo => {
                 let acc: &Account = host.account();
-                let (bal, eq, fl, login, lev, nm, srv, cur) =
-                    (acc.balance, acc.equity(), acc.floating(), acc.login, acc.leverage, acc.name.clone(), acc.server.clone(), acc.currency.clone());
+                let (bal, eq, fl, login, lev, nm, srv, cur) = (
+                    acc.balance,
+                    acc.equity(),
+                    acc.floating(),
+                    acc.login,
+                    acc.leverage,
+                    acc.name.clone(),
+                    acc.server.clone(),
+                    acc.currency.clone(),
+                );
                 let mg = host.margin();
                 Ok(match m {
                     "Balance" => vd(bal),
@@ -1671,7 +2069,15 @@ impl Instance {
         }
     }
 
-    fn trade_method(&mut self, obj: &ObjRef, magic: i64, last: &TradeInfo, m: &str, a: &[Value], host: &mut dyn Host) -> R<Value> {
+    fn trade_method(
+        &mut self,
+        obj: &ObjRef,
+        magic: i64,
+        last: &TradeInfo,
+        m: &str,
+        a: &[Value],
+        host: &mut dyn Host,
+    ) -> R<Value> {
         let sym_or = |v: Option<&Value>, me: &Instance| -> String {
             match v {
                 Some(Value::Str(s)) if !s.is_empty() => s.to_string(),
@@ -1682,7 +2088,12 @@ impl Instance {
             match v {
                 Some(Value::Str(s)) => {
                     let s = s.to_string();
-                    host.account().positions.iter().find(|p| p.symbol == s).map(|p| p.ticket).unwrap_or(0)
+                    host.account()
+                        .positions
+                        .iter()
+                        .find(|p| p.symbol == s)
+                        .map(|p| p.ticket)
+                        .unwrap_or(0)
                 }
                 Some(v) => v.as_i64() as u64,
                 None => 0,
@@ -1695,7 +2106,12 @@ impl Instance {
                 }
                 return Ok(Value::Void);
             }
-            "SetDeviationInPoints" | "SetTypeFilling" | "SetTypeFillingBySymbol" | "SetAsyncMode" | "SetMarginMode" | "LogLevel" => return Ok(Value::Void),
+            "SetDeviationInPoints"
+            | "SetTypeFilling"
+            | "SetTypeFillingBySymbol"
+            | "SetAsyncMode"
+            | "SetMarginMode"
+            | "LogLevel" => return Ok(Value::Void),
             "ResultRetcode" => return Ok(vi(last.retcode)),
             "ResultRetcodeDescription" | "ResultComment" => return Ok(Value::str(&last.comment)),
             "ResultOrder" => return Ok(vi(last.order as i64)),
@@ -1721,9 +2137,19 @@ impl Instance {
                 magic,
                 comment: arg_s(a, 6),
             },
-            "PositionClose" => TradeOp::Close { ticket: find_ticket(a.first(), host), volume: None },
-            "PositionClosePartial" => TradeOp::Close { ticket: find_ticket(a.first(), host), volume: Some(arg_f(a, 1, 0.0)) },
-            "PositionModify" => TradeOp::Modify { ticket: find_ticket(a.first(), host), sl: arg_f(a, 1, 0.0), tp: arg_f(a, 2, 0.0) },
+            "PositionClose" => TradeOp::Close {
+                ticket: find_ticket(a.first(), host),
+                volume: None,
+            },
+            "PositionClosePartial" => TradeOp::Close {
+                ticket: find_ticket(a.first(), host),
+                volume: Some(arg_f(a, 1, 0.0)),
+            },
+            "PositionModify" => TradeOp::Modify {
+                ticket: find_ticket(a.first(), host),
+                sl: arg_f(a, 1, 0.0),
+                tp: arg_f(a, 2, 0.0),
+            },
             "BuyLimit" | "SellLimit" | "BuyStop" | "SellStop" => TradeOp::Pending {
                 symbol: sym_or(a.get(2), self),
                 typ: match m {
@@ -1749,13 +2175,27 @@ impl Instance {
                 magic,
                 comment: arg_s(a, 9),
             },
-            "OrderModify" => TradeOp::ModifyOrder { ticket: arg_i(a, 0, 0) as u64, price: arg_f(a, 1, 0.0), sl: arg_f(a, 2, 0.0), tp: arg_f(a, 3, 0.0) },
-            "OrderDelete" => TradeOp::Delete { ticket: arg_i(a, 0, 0) as u64 },
+            "OrderModify" => TradeOp::ModifyOrder {
+                ticket: arg_i(a, 0, 0) as u64,
+                price: arg_f(a, 1, 0.0),
+                sl: arg_f(a, 2, 0.0),
+                tp: arg_f(a, 3, 0.0),
+            },
+            "OrderDelete" => TradeOp::Delete {
+                ticket: arg_i(a, 0, 0) as u64,
+            },
             _ => return Err(self.err(format!("'{}' - unknown method of CTrade", m))),
         };
         let r = self.do_trade(host, op);
         if let ObjVal::Trade { last, .. } = &mut *obj.borrow_mut() {
-            *last = TradeInfo { retcode: r.retcode, order: r.order, deal: r.deal, price: r.price, volume: r.volume, comment: r.comment.clone() };
+            *last = TradeInfo {
+                retcode: r.retcode,
+                order: r.order,
+                deal: r.deal,
+                price: r.price,
+                volume: r.volume,
+                comment: r.comment.clone(),
+            };
         }
         Ok(vb(r.retcode == RET_DONE))
     }
@@ -1965,7 +2405,9 @@ pub fn printf(fmt: &str, args: &[Value]) -> String {
             'x' => format!("{:x}", arg.as_i64()),
             'X' => format!("{:X}", arg.as_i64()),
             'o' => format!("{:o}", arg.as_i64()),
-            'c' => char::from_u32(arg.as_i64() as u32).map(|c| c.to_string()).unwrap_or_default(),
+            'c' => char::from_u32(arg.as_i64() as u32)
+                .map(|c| c.to_string())
+                .unwrap_or_default(),
             'f' | 'F' => {
                 let v = arg.as_f64();
                 let p = prec.unwrap_or(6);
@@ -2000,7 +2442,11 @@ pub fn printf(fmt: &str, args: &[Value]) -> String {
                 if flags.contains('-') {
                     s.push_str(&" ".repeat(pad));
                 } else if flags.contains('0') && !matches!(conv, 's' | 'c') {
-                    let (sign, rest) = if s.starts_with('-') || s.starts_with('+') { s.split_at(1) } else { ("", s.as_str()) };
+                    let (sign, rest) = if s.starts_with('-') || s.starts_with('+') {
+                        s.split_at(1)
+                    } else {
+                        ("", s.as_str())
+                    };
                     s = format!("{}{}{}", sign, "0".repeat(pad), rest);
                 } else {
                     s = format!("{}{}", " ".repeat(pad), s);
@@ -2022,7 +2468,11 @@ pub(super) fn series_range(times: &[i64], start: i64, count: i64) -> Option<(usi
     }
     const T: i64 = 100_000_000;
     let (oldest, newest) = if start > T && count > T {
-        let (a, b) = if start <= count { (start, count) } else { (count, start) };
+        let (a, b) = if start <= count {
+            (start, count)
+        } else {
+            (count, start)
+        };
         let o = times.iter().position(|&t| t >= a)? as i64;
         let nw = times.iter().rposition(|&t| t <= b)? as i64;
         (o, nw)

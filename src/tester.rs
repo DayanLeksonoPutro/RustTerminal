@@ -52,7 +52,11 @@ pub struct TesterHost {
 impl QuoteSource for TesterHost {
     fn quote(&self, symbol: &str) -> Option<Quote> {
         if symbol.eq_ignore_ascii_case(self.spec.name) {
-            Some(Quote { spec: self.spec.clone(), bid: self.bid, ask: self.ask })
+            Some(Quote {
+                spec: self.spec.clone(),
+                bid: self.bid,
+                ask: self.ask,
+            })
         } else {
             None
         }
@@ -63,7 +67,11 @@ struct Q<'a>(&'a SymbolSpec, f64, f64);
 impl QuoteSource for Q<'_> {
     fn quote(&self, symbol: &str) -> Option<Quote> {
         if symbol.eq_ignore_ascii_case(self.0.name) {
-            Some(Quote { spec: self.0.clone(), bid: self.1, ask: self.2 })
+            Some(Quote {
+                spec: self.0.clone(),
+                bid: self.1,
+                ask: self.2,
+            })
         } else {
             None
         }
@@ -71,6 +79,40 @@ impl QuoteSource for Q<'_> {
 }
 
 impl TesterHost {
+    /// A host that shows every bar at once (no stepping): for running an indicator over
+    /// finished history outside the tester, e.g. from the MCP server.
+    pub fn over_bars(
+        spec: SymbolSpec,
+        tf: Timeframe,
+        bars: Vec<Bar>,
+        loader: Box<dyn Fn(&str) -> Result<Rc<Program>, String>>,
+    ) -> TesterHost {
+        let last = bars.last().copied().unwrap_or_default();
+        let spread = spec.spread_points as f64 * spec.point();
+        let ask = crate::market::round_to(last.close + spread, spec.digits);
+        let mut account = Account::new_demo(1, "MCP", 10000.0, 100);
+        account.server = "MCP".into();
+        TesterHost {
+            spec,
+            tf,
+            view: bars.clone(),
+            all: bars,
+            bid: last.close,
+            ask,
+            time: last.time,
+            account,
+            log: vec![],
+            objects: ChartObjects::default(),
+            gv: HashMap::new(),
+            comment: String::new(),
+            agg_cache: HashMap::new(),
+            loader,
+            base: vec![],
+            base_view: vec![],
+            base_pos: 0,
+        }
+    }
+
     pub fn set_price(&mut self, time: i64, bid: f64) {
         let spread = self.spec.spread_points as f64 * self.spec.point();
         self.time = time;
@@ -100,7 +142,11 @@ impl Host for TesterHost {
             return None;
         }
         // other timeframes are built from what is visible so far
-        let src: &Vec<Bar> = if with_base { &self.base_view } else { &self.view };
+        let src: &Vec<Bar> = if with_base {
+            &self.base_view
+        } else {
+            &self.view
+        };
         let key = src.len() * 1_000_000 + src.last().map(|b| b.tick_volume as usize).unwrap_or(0);
         let fresh = !matches!(self.agg_cache.get(&tf), Some((k, _)) if *k == key);
         if fresh {
@@ -123,22 +169,67 @@ impl Host for TesterHost {
         let t = self.time;
         let log = &mut self.log;
         match op {
-            TradeOp::Market { symbol, buy, volume, sl, tp, magic, comment } => self.account.market_order(&q, &symbol, buy, volume, sl, tp, magic, &comment, t, log),
-            TradeOp::Close { ticket, volume } => self.account.close_position(&q, ticket, volume, t, "", log),
-            TradeOp::Modify { ticket, sl, tp } => self.account.modify_position(&q, ticket, sl, tp, log),
-            TradeOp::Pending { symbol, typ, volume, price, sl, tp, magic, comment } => match crate::account::OrderType::from_i64(typ) {
-                Some(ot) => self.account.pending_order(&q, &symbol, ot, volume, price, sl, tp, magic, &comment, t, log),
-                None => TradeResult { retcode: crate::account::RET_INVALID, order: 0, deal: 0, price: 0.0, volume: 0.0, comment: "invalid order type".into() },
+            TradeOp::Market {
+                symbol,
+                buy,
+                volume,
+                sl,
+                tp,
+                magic,
+                comment,
+            } => self
+                .account
+                .market_order(&q, &symbol, buy, volume, sl, tp, magic, &comment, t, log),
+            TradeOp::Close { ticket, volume } => {
+                self.account.close_position(&q, ticket, volume, t, "", log)
+            }
+            TradeOp::Modify { ticket, sl, tp } => {
+                self.account.modify_position(&q, ticket, sl, tp, log)
+            }
+            TradeOp::Pending {
+                symbol,
+                typ,
+                volume,
+                price,
+                sl,
+                tp,
+                magic,
+                comment,
+            } => match crate::account::OrderType::from_i64(typ) {
+                Some(ot) => self.account.pending_order(
+                    &q, &symbol, ot, volume, price, sl, tp, magic, &comment, t, log,
+                ),
+                None => TradeResult {
+                    retcode: crate::account::RET_INVALID,
+                    order: 0,
+                    deal: 0,
+                    price: 0.0,
+                    volume: 0.0,
+                    comment: "invalid order type".into(),
+                },
             },
             TradeOp::Delete { ticket } => self.account.delete_order(ticket, log),
-            TradeOp::ModifyOrder { ticket, price, sl, tp } => self.account.modify_order(ticket, price, sl, tp),
+            TradeOp::ModifyOrder {
+                ticket,
+                price,
+                sl,
+                tp,
+            } => self.account.modify_order(ticket, price, sl, tp),
         }
     }
     fn print(&mut self, msg: &str) {
-        self.log.push(format!("{}   {}", crate::market::fmt_time(self.time, true), msg));
+        self.log.push(format!(
+            "{}   {}",
+            crate::market::fmt_time(self.time, true),
+            msg
+        ));
     }
     fn alert(&mut self, msg: &str) {
-        self.log.push(format!("{}   Alert: {}", crate::market::fmt_time(self.time, true), msg));
+        self.log.push(format!(
+            "{}   Alert: {}",
+            crate::market::fmt_time(self.time, true),
+            msg
+        ));
     }
     fn set_comment(&mut self, text: &str) {
         self.comment = text.to_string();
@@ -207,7 +298,19 @@ impl TestRun {
         inputs: &HashMap<String, String>,
         loader: Box<dyn Fn(&str) -> Result<Rc<Program>, String>>,
     ) -> TestRun {
-        TestRun::new_inner(prog, spec, tf, bars, mode, deposit, leverage, inputs, loader, vec![], 0)
+        TestRun::new_inner(
+            prog,
+            spec,
+            tf,
+            bars,
+            mode,
+            deposit,
+            leverage,
+            inputs,
+            loader,
+            vec![],
+            0,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -250,16 +353,38 @@ impl TestRun {
         };
         let mut inst = Instance::new(prog, spec.name, tf, inputs);
         let mut error = None;
-        host.log.push(format!("testing of {} on {} {} started ({})", inst.name, spec.name, tf.label(), mode.label()));
+        host.log.push(format!(
+            "testing of {} on {} {} started ({})",
+            inst.name,
+            spec.name,
+            tf.label(),
+            mode.label()
+        ));
         match inst.init(&mut host) {
             Ok(0) => {}
             Ok(code) => error = Some(format!("OnInit returned non-zero code {}", code)),
-            Err(e) => error = Some(format!("critical runtime error: {} in OnInit function", inst.fmt_err(&e))),
+            Err(e) => {
+                error = Some(format!(
+                    "critical runtime error: {} in OnInit function",
+                    inst.fmt_err(&e)
+                ))
+            }
         }
         if let Some(e) = &error {
             host.log.push(e.clone());
         }
-        TestRun { host, inst, bar: warmup, start_bar: warmup, mode, done: error.is_some(), error, curve: vec![], ticks: 0, deposit }
+        TestRun {
+            host,
+            inst,
+            bar: warmup,
+            start_bar: warmup,
+            mode,
+            done: error.is_some(),
+            error,
+            curve: vec![],
+            ticks: 0,
+            deposit,
+        }
     }
 
     /// A test driven by real one-minute history: the tested timeframe is built from it,
@@ -277,12 +402,18 @@ impl TestRun {
         inputs: &HashMap<String, String>,
         loader: Box<dyn Fn(&str) -> Result<Rc<Program>, String>>,
     ) -> TestRun {
-        let bars = if tf == Timeframe::M1 { minutes.clone() } else { crate::history::aggregate(&minutes, tf) };
+        let bars = if tf == Timeframe::M1 {
+            minutes.clone()
+        } else {
+            crate::history::aggregate(&minutes, tf)
+        };
         let warmup = 100.min(bars.len() / 4);
         let first_time = bars.get(warmup).map(|b| b.time).unwrap_or(i64::MAX);
         let base_pos = minutes.partition_point(|b| b.time < first_time);
         // the host must see the warm-up minutes before OnInit runs
-        let mut run = TestRun::new_inner(prog, spec, tf, bars, mode, deposit, leverage, inputs, loader, minutes, base_pos);
+        let mut run = TestRun::new_inner(
+            prog, spec, tf, bars, mode, deposit, leverage, inputs, loader, minutes, base_pos,
+        );
         run.host.base_pos = base_pos;
         run
     }
@@ -303,12 +434,19 @@ impl TestRun {
                 }
             }
             TickMode::EveryTick => {
-                let pts = if b.close >= b.open { [b.open, b.low, b.high, b.close] } else { [b.open, b.high, b.low, b.close] };
+                let pts = if b.close >= b.open {
+                    [b.open, b.low, b.high, b.close]
+                } else {
+                    [b.open, b.high, b.low, b.close]
+                };
                 let mut out = vec![];
                 for w in pts.windows(2) {
                     for k in 0..4 {
                         let f = k as f64 / 4.0;
-                        out.push(crate::market::round_to(w[0] + (w[1] - w[0]) * f, self.host.spec.digits));
+                        out.push(crate::market::round_to(
+                            w[0] + (w[1] - w[0]) * f,
+                            self.host.spec.digits,
+                        ));
                     }
                 }
                 out.push(b.close);
@@ -333,14 +471,26 @@ impl TestRun {
             let ticks: Vec<(i64, f64, Option<usize>)> = if self.host.base.is_empty() {
                 let path = self.tick_path(&b);
                 let n = path.len();
-                path.into_iter().enumerate().map(|(k, p)| (b.time + (secs * k as i64) / n.max(1) as i64, p, None)).collect()
+                path.into_iter()
+                    .enumerate()
+                    .map(|(k, p)| (b.time + (secs * k as i64) / n.max(1) as i64, p, None))
+                    .collect()
             } else {
-                let end = self.host.all.get(self.bar + 1).map(|x| x.time).unwrap_or(i64::MAX);
+                let end = self
+                    .host
+                    .all
+                    .get(self.bar + 1)
+                    .map(|x| x.time)
+                    .unwrap_or(i64::MAX);
                 let mut v = vec![];
                 let mut j = self.host.base_pos;
                 while j < self.host.base.len() && self.host.base[j].time < end {
                     let m = self.host.base[j];
-                    let path = if self.mode == TickMode::OpenPrices { vec![m.open] } else { self.tick_path(&m) };
+                    let path = if self.mode == TickMode::OpenPrices {
+                        vec![m.open]
+                    } else {
+                        self.tick_path(&m)
+                    };
                     let n = path.len();
                     for (k, p) in path.into_iter().enumerate() {
                         v.push((m.time + (60 * k as i64) / n.max(1) as i64, p, Some(j)));
@@ -362,7 +512,15 @@ impl TestRun {
             };
             for (k, (t, p, minute)) in ticks.into_iter().enumerate() {
                 if k == 0 {
-                    self.host.view.push(Bar { time: b.time, open: p, high: p, low: p, close: p, tick_volume: 1, spread: b.spread });
+                    self.host.view.push(Bar {
+                        time: b.time,
+                        open: p,
+                        high: p,
+                        low: p,
+                        close: p,
+                        tick_volume: 1,
+                        spread: b.spread,
+                    });
                 } else if let Some(l) = self.host.view.last_mut() {
                     l.high = l.high.max(p);
                     l.low = l.low.min(p);
@@ -378,14 +536,25 @@ impl TestRun {
                             l.close = p;
                             l.tick_volume += 1;
                         }
-                        _ => self.host.base_view.push(Bar { time: m.time, open: p, high: p, low: p, close: p, tick_volume: 1, spread: m.spread }),
+                        _ => self.host.base_view.push(Bar {
+                            time: m.time,
+                            open: p,
+                            high: p,
+                            low: p,
+                            close: p,
+                            tick_volume: 1,
+                            spread: m.spread,
+                        }),
                     }
                 }
                 self.host.set_price(t, p);
                 self.ticks += 1;
                 let deals_before = self.host.account.deals.len();
                 if let Err(e) = self.inst.call_event("OnTick", vec![], &mut self.host) {
-                    let msg = format!("critical runtime error: {} in OnTick function", self.inst.fmt_err(&e));
+                    let msg = format!(
+                        "critical runtime error: {} in OnTick function",
+                        self.inst.fmt_err(&e)
+                    );
                     self.host.log.push(msg.clone());
                     self.error = Some(msg);
                     self.finish();
@@ -405,18 +574,28 @@ impl TestRun {
             }
             if !self.host.base.is_empty() {
                 // the minutes of this bar are complete: make them exact
-                let end = self.host.all.get(self.bar + 1).map(|x| x.time).unwrap_or(i64::MAX);
+                let end = self
+                    .host
+                    .all
+                    .get(self.bar + 1)
+                    .map(|x| x.time)
+                    .unwrap_or(i64::MAX);
                 let from = self.host.base_pos;
                 let mut to = from;
                 while to < self.host.base.len() && self.host.base[to].time < end {
                     to += 1;
                 }
-                let keep = self.host.base_view.partition_point(|x| x.time < self.host.base.get(from).map(|m| m.time).unwrap_or(i64::MAX));
+                let keep = self.host.base_view.partition_point(|x| {
+                    x.time < self.host.base.get(from).map(|m| m.time).unwrap_or(i64::MAX)
+                });
                 self.host.base_view.truncate(keep);
-                self.host.base_view.extend_from_slice(&self.host.base[from..to]);
+                self.host
+                    .base_view
+                    .extend_from_slice(&self.host.base[from..to]);
                 self.host.base_pos = to;
             }
-            self.curve.push((self.host.account.balance, self.host.account.equity()));
+            self.curve
+                .push((self.host.account.balance, self.host.account.equity()));
             self.bar += 1;
         }
         false
@@ -427,19 +606,36 @@ impl TestRun {
             return;
         }
         self.done = true;
-        let tickets: Vec<u64> = self.host.account.positions.iter().map(|p| p.ticket).collect();
+        let tickets: Vec<u64> = self
+            .host
+            .account
+            .positions
+            .iter()
+            .map(|p| p.ticket)
+            .collect();
         let q = Q(&self.host.spec, self.host.bid, self.host.ask);
         let t = self.host.time;
         for tk in tickets {
-            self.host.account.close_position(&q, tk, None, t, "end of test ", &mut self.host.log);
+            self.host
+                .account
+                .close_position(&q, tk, None, t, "end of test ", &mut self.host.log);
         }
         let _ = self.inst.deinit(0, &mut self.host);
-        self.curve.push((self.host.account.balance, self.host.account.equity()));
-        self.host.log.push(format!("final balance {:.2} USD", self.host.account.balance));
+        self.curve
+            .push((self.host.account.balance, self.host.account.equity()));
+        self.host.log.push(format!(
+            "final balance {:.2} USD",
+            self.host.account.balance
+        ));
     }
 
     pub fn report(&self) -> TestReport {
-        let mut r = TestReport { initial: self.deposit, bars: self.bar - self.start_bar, ticks: self.ticks, ..Default::default() };
+        let mut r = TestReport {
+            initial: self.deposit,
+            bars: self.bar - self.start_bar,
+            ticks: self.ticks,
+            ..Default::default()
+        };
         for d in self.host.account.deals.iter().filter(|d| d.entry == "out") {
             r.trades += 1;
             if d.profit >= 0.0 {
@@ -453,8 +649,16 @@ impl TestRun {
             }
         }
         r.net = r.gross_profit + r.gross_loss;
-        r.profit_factor = if r.gross_loss < 0.0 { r.gross_profit / -r.gross_loss } else { 0.0 };
-        r.expected_payoff = if r.trades > 0 { r.net / r.trades as f64 } else { 0.0 };
+        r.profit_factor = if r.gross_loss < 0.0 {
+            r.gross_profit / -r.gross_loss
+        } else {
+            0.0
+        };
+        r.expected_payoff = if r.trades > 0 {
+            r.net / r.trades as f64
+        } else {
+            0.0
+        };
         let mut peak = self.deposit;
         for (_, eq) in &self.curve {
             peak = peak.max(*eq);

@@ -62,8 +62,8 @@ struct Parser {
 }
 
 const PRIM_TYPES: [&str; 17] = [
-    "void", "bool", "char", "uchar", "short", "ushort", "int", "uint", "long", "ulong", "float", "double", "string", "datetime",
-    "color", "unsigned", "signed",
+    "void", "bool", "char", "uchar", "short", "ushort", "int", "uint", "long", "ulong", "float",
+    "double", "string", "datetime", "color", "unsigned", "signed",
 ];
 
 impl Parser {
@@ -74,7 +74,10 @@ impl Parser {
         for (name, fields) in builtins::builtin_structs() {
             type_names.insert(name.to_string());
             let sym = interner.intern(name);
-            let fields = fields.iter().map(|(f, t)| (interner.intern(f), t.clone(), vec![])).collect();
+            let fields = fields
+                .iter()
+                .map(|(f, t)| (interner.intern(f), t.clone(), vec![]))
+                .collect();
             structs.insert(sym, Rc::new(StructDef { name: sym, fields }));
         }
         for c in builtins::BUILTIN_CLASSES {
@@ -117,14 +120,24 @@ impl Parser {
 
     fn finish(self) -> Program {
         let kind = {
-            let has = |n: &str| self.interner.get(n).is_some_and(|s| self.funcs.contains_key(&s));
+            let has = |n: &str| {
+                self.interner
+                    .get(n)
+                    .is_some_and(|s| self.funcs.contains_key(&s))
+            };
             if has("OnCalculate") {
                 ProgramKind::Indicator
             } else if has("OnTick") {
                 ProgramKind::Expert
             } else if has("OnStart") {
                 ProgramKind::Script
-            } else if has("OnInit") || has("OnTimer") || has("OnChartEvent") || has("OnTrade") || has("OnTradeTransaction") || has("OnBookEvent") {
+            } else if has("OnInit")
+                || has("OnTimer")
+                || has("OnChartEvent")
+                || has("OnTrade")
+                || has("OnTradeTransaction")
+                || has("OnBookEvent")
+            {
                 // an expert advisor does not need OnTick
                 ProgramKind::Expert
             } else {
@@ -156,10 +169,28 @@ impl Parser {
     }
 
     fn is_defined(&self, name: &str) -> bool {
-        self.macros.contains_key(name) || matches!(name, "__LINE__" | "__FILE__" | "__DATE__" | "__DATETIME__" | "__MQLBUILD__" | "__MQL5BUILD__" | "__FUNCTION__" | "__FUNCSIG__" | "__PATH__" | "__COUNTER__")
+        self.macros.contains_key(name)
+            || matches!(
+                name,
+                "__LINE__"
+                    | "__FILE__"
+                    | "__DATE__"
+                    | "__DATETIME__"
+                    | "__MQLBUILD__"
+                    | "__MQL5BUILD__"
+                    | "__FUNCTION__"
+                    | "__FUNCSIG__"
+                    | "__PATH__"
+                    | "__COUNTER__"
+            )
     }
 
-    fn preprocess(&mut self, toks: Vec<Token>, loader: Loader, depth: usize) -> Result<Vec<Token>, CompileError> {
+    fn preprocess(
+        &mut self,
+        toks: Vec<Token>,
+        loader: Loader,
+        depth: usize,
+    ) -> Result<Vec<Token>, CompileError> {
         let mut out = Vec::with_capacity(toks.len());
         let cond_depth = self.cond.len();
         let mut i = 0;
@@ -174,18 +205,32 @@ impl Parser {
                             let name = rest.split_whitespace().next().unwrap_or("");
                             let def = self.is_defined(name);
                             let cond = parent && (if word == "ifdef" { def } else { !def });
-                            self.cond.push(Cond { parent, active: cond, taken: cond });
+                            self.cond.push(Cond {
+                                parent,
+                                active: cond,
+                                taken: cond,
+                            });
                         }
                         "else" => match self.cond.last_mut() {
                             Some(c) => {
                                 c.active = c.parent && !c.taken;
                                 c.taken = true;
                             }
-                            None => return Err(CompileError { line: t.line, col: t.col, msg: "'#else' without '#ifdef'".into() }),
+                            None => {
+                                return Err(CompileError {
+                                    line: t.line,
+                                    col: t.col,
+                                    msg: "'#else' without '#ifdef'".into(),
+                                })
+                            }
                         },
                         "endif" => {
                             if self.cond.len() <= cond_depth {
-                                return Err(CompileError { line: t.line, col: t.col, msg: "'#endif' without '#ifdef'".into() });
+                                return Err(CompileError {
+                                    line: t.line,
+                                    col: t.col,
+                                    msg: "'#endif' without '#ifdef'".into(),
+                                });
                             }
                             self.cond.pop();
                         }
@@ -203,16 +248,30 @@ impl Parser {
                 Tok::Eof => {
                     if depth == 0 {
                         if self.cond.len() > cond_depth {
-                            return Err(CompileError { line: t.line, col: t.col, msg: "'#endif' expected".into() });
+                            return Err(CompileError {
+                                line: t.line,
+                                col: t.col,
+                                msg: "'#endif' expected".into(),
+                            });
                         }
                         out.push(t.clone());
                     }
                     i += 1;
                 }
-                Tok::Ident(name) if self.macros.contains_key(name) || self.is_special_macro(name) => {
+                Tok::Ident(name)
+                    if self.macros.contains_key(name) || self.is_special_macro(name) =>
+                {
                     let fn_like = self.macros.get(name).is_some_and(|m| m.params.is_some());
-                    let end = if fn_like && matches!(toks.get(i + 1).map(|t| &t.tok), Some(Tok::Punct("("))) {
-                        collect_args(&toks, i + 1).map(|(_, e)| e).ok_or_else(|| CompileError { line: t.line, col: t.col, msg: format!("'{}' - unterminated macro call", name) })?
+                    let end = if fn_like
+                        && matches!(toks.get(i + 1).map(|t| &t.tok), Some(Tok::Punct("(")))
+                    {
+                        collect_args(&toks, i + 1)
+                            .map(|(_, e)| e)
+                            .ok_or_else(|| CompileError {
+                                line: t.line,
+                                col: t.col,
+                                msg: format!("'{}' - unterminated macro call", name),
+                            })?
                     } else {
                         i + 1
                     };
@@ -239,7 +298,17 @@ impl Parser {
     }
 
     fn is_special_macro(&self, name: &str) -> bool {
-        matches!(name, "__LINE__" | "__FILE__" | "__DATE__" | "__DATETIME__" | "__MQLBUILD__" | "__MQL5BUILD__" | "__PATH__" | "__COUNTER__")
+        matches!(
+            name,
+            "__LINE__"
+                | "__FILE__"
+                | "__DATE__"
+                | "__DATETIME__"
+                | "__MQLBUILD__"
+                | "__MQL5BUILD__"
+                | "__PATH__"
+                | "__COUNTER__"
+        )
     }
 
     fn special_macro(&mut self, name: &str, line: u32, col: u32) -> Option<Token> {
@@ -248,8 +317,15 @@ impl Parser {
             "__FILE__" => Tok::Str(self.file_name.clone()),
             "__PATH__" => Tok::Str(self.file_name.clone()),
             "__DATE__" | "__DATETIME__" => {
-                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
-                Tok::Int(if name == "__DATE__" { now - now % 86400 } else { now })
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                Tok::Int(if name == "__DATE__" {
+                    now - now % 86400
+                } else {
+                    now
+                })
             }
             "__MQLBUILD__" | "__MQL5BUILD__" => Tok::Int(4620),
             "__COUNTER__" => {
@@ -258,13 +334,29 @@ impl Parser {
             }
             _ => return None,
         };
-        Some(Token { tok, line, col, file: self.site_file })
+        Some(Token {
+            tok,
+            line,
+            col,
+            file: self.site_file,
+        })
     }
 
     /// Fully macro-expand a token list. `hide` holds macros being expanded (no recursion).
-    fn expand_list(&mut self, toks: &[Token], hide: &HashSet<String>, line: u32, col: u32, level: usize) -> Result<Vec<Token>, CompileError> {
+    fn expand_list(
+        &mut self,
+        toks: &[Token],
+        hide: &HashSet<String>,
+        line: u32,
+        col: u32,
+        level: usize,
+    ) -> Result<Vec<Token>, CompileError> {
         if level > 64 {
-            return Err(CompileError { line, col, msg: "macro expansion too deep".into() });
+            return Err(CompileError {
+                line,
+                col,
+                msg: "macro expansion too deep".into(),
+            });
         }
         let mut out = vec![];
         let mut i = 0;
@@ -314,10 +406,22 @@ impl Parser {
                         i += 1;
                         continue;
                     }
-                    let (args, end) = collect_args(toks, i + 1).ok_or_else(|| CompileError { line, col, msg: format!("'{}' - unterminated macro call", name) })?;
-                    let args = if params.is_empty() && args.len() == 1 && args[0].is_empty() { vec![] } else { args };
+                    let (args, end) = collect_args(toks, i + 1).ok_or_else(|| CompileError {
+                        line,
+                        col,
+                        msg: format!("'{}' - unterminated macro call", name),
+                    })?;
+                    let args = if params.is_empty() && args.len() == 1 && args[0].is_empty() {
+                        vec![]
+                    } else {
+                        args
+                    };
                     if args.len() != params.len() {
-                        return Err(CompileError { line, col, msg: format!("'{}' - wrong parameters count for macro", name) });
+                        return Err(CompileError {
+                            line,
+                            col,
+                            msg: format!("'{}' - wrong parameters count for macro", name),
+                        });
                     }
                     let mut expanded_args = vec![];
                     for a in &args {
@@ -332,8 +436,19 @@ impl Parser {
         Ok(out)
     }
 
-    fn directive(&mut self, d: &str, t: &Token, out: &mut Vec<Token>, loader: Loader, depth: usize) -> Result<(), CompileError> {
-        let err = |msg: String| CompileError { line: t.line, col: t.col, msg };
+    fn directive(
+        &mut self,
+        d: &str,
+        t: &Token,
+        out: &mut Vec<Token>,
+        loader: Loader,
+        depth: usize,
+    ) -> Result<(), CompileError> {
+        let err = |msg: String| CompileError {
+            line: t.line,
+            col: t.col,
+            msg,
+        };
         let (word, rest) = split_directive(d);
         match word {
             "property" => self.property(rest),
@@ -343,8 +458,14 @@ impl Parser {
                     None => (rest, ""),
                 };
                 let (params, body) = if let Some(after) = body.strip_prefix('(') {
-                    let close = after.find(')').ok_or_else(|| err(format!("'{}' - ')' expected in macro parameters", name)))?;
-                    let params: Vec<String> = after[..close].split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                    let close = after.find(')').ok_or_else(|| {
+                        err(format!("'{}' - ')' expected in macro parameters", name))
+                    })?;
+                    let params: Vec<String> = after[..close]
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
                     (Some(params), &after[close + 1..])
                 } else {
                     (None, body)
@@ -352,14 +473,17 @@ impl Parser {
                 let lexed = lex_fragment(body).map_err(|e| err(e.msg))?;
                 let mut toks = lexed.tokens;
                 toks.pop(); // Eof
-                self.macros.insert(name.to_string(), Macro { params, body: toks });
+                self.macros
+                    .insert(name.to_string(), Macro { params, body: toks });
             }
             "undef" => {
                 self.macros.remove(rest);
             }
             "include" => {
                 let quoted = rest.starts_with('"');
-                let path = rest.trim_matches(|c| c == '<' || c == '>' || c == '"').replace('\\', "/");
+                let path = rest
+                    .trim_matches(|c| c == '<' || c == '>' || c == '"')
+                    .replace('\\', "/");
                 if depth > 16 {
                     return Err(err("include nesting too deep".into()));
                 }
@@ -371,10 +495,14 @@ impl Parser {
                 cands.push(normalize_path(&path));
                 let native = |p: &str| {
                     let l = p.to_ascii_lowercase();
-                    builtins::NATIVE_HEADERS.iter().any(|h| l == *h || l.ends_with(&format!("/{}", h)))
+                    builtins::NATIVE_HEADERS
+                        .iter()
+                        .any(|h| l == *h || l.ends_with(&format!("/{}", h)))
                 };
                 // the real header is used when present; otherwise the engine's own classes
-                let found = cands.iter().find_map(|c| loader(c).map(|src| (c.clone(), src)));
+                let found = cands
+                    .iter()
+                    .find_map(|c| loader(c).map(|src| (c.clone(), src)));
                 if found.is_none() && cands.iter().any(|c| native(c)) {
                     return Ok(());
                 }
@@ -384,26 +512,37 @@ impl Parser {
                         if !self.included.insert(key) {
                             return Ok(()); // every include file is read once
                         }
-                        let mut lexed = lex(&src).map_err(|e| err(format!("{}: {}", resolved, e.msg)))?;
+                        let mut lexed =
+                            lex(&src).map_err(|e| err(format!("{}: {}", resolved, e.msg)))?;
                         self.files.push(resolved.clone());
                         let fidx = (self.files.len() - 1).min(u16::MAX as usize - 1) as u16;
                         for tk in lexed.tokens.iter_mut() {
                             tk.file = fidx;
                         }
                         let saved = std::mem::replace(&mut self.file_name, resolved.clone());
-                        let dir = resolved.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+                        let dir = resolved
+                            .rsplit_once('/')
+                            .map(|(d, _)| d.to_string())
+                            .unwrap_or_default();
                         let saved_dir = std::mem::replace(&mut self.cur_dir, dir);
                         let inner = self.preprocess(lexed.tokens, loader, depth + 1);
                         self.file_name = saved;
                         self.cur_dir = saved_dir;
-                        out.extend(inner.map_err(|e| if e.msg.contains(".mqh") { e } else { err(format!("{} ({}): {}", resolved, e.line, e.msg)) })?);
+                        out.extend(inner.map_err(|e| {
+                            if e.msg.contains(".mqh") {
+                                e
+                            } else {
+                                err(format!("{} ({}): {}", resolved, e.line, e.msg))
+                            }
+                        })?);
                     }
                     None => return Err(err(format!("can't open \"{}\" include file", path))),
                 }
             }
             "import" => return Err(err("DLL imports are not allowed in this terminal".into())),
             "resource" | "pragma" => {
-                self.warnings.push(format!("line {}: #{} ignored", t.line, word));
+                self.warnings
+                    .push(format!("line {}: #{} ignored", t.line, word));
             }
             _ => return Err(err(format!("'#{}' - unknown directive", word))),
         }
@@ -418,9 +557,14 @@ impl Parser {
         let unq = val.trim_matches('"').to_string();
         let num = |v: &str| -> Option<f64> {
             let v = v.trim();
-            v.parse::<f64>().ok().or_else(|| builtins::constant(v).and_then(|c| c.as_f64()))
+            v.parse::<f64>()
+                .ok()
+                .or_else(|| builtins::constant(v).and_then(|c| c.as_f64()))
         };
-        let plot_idx = |prefix: &str| -> Option<usize> { key.strip_prefix(prefix).and_then(|n| n.parse::<usize>().ok()) };
+        let plot_idx = |prefix: &str| -> Option<usize> {
+            key.strip_prefix(prefix)
+                .and_then(|n| n.parse::<usize>().ok())
+        };
         match key {
             "indicator_chart_window" => self.props.chart_window = true,
             "indicator_separate_window" => self.props.separate_window = true,
@@ -438,14 +582,20 @@ impl Parser {
                 if let Some(i) = plot_idx("indicator_type") {
                     self.props.plot.entry(i).or_default().draw_type = num(val).map(|v| v as i64);
                 } else if let Some(i) = plot_idx("indicator_color") {
-                    self.props.plot.entry(i).or_default().colors = val.split(',').filter_map(|c| parse_color_value(c.trim())).collect();
+                    self.props.plot.entry(i).or_default().colors = val
+                        .split(',')
+                        .filter_map(|c| parse_color_value(c.trim()))
+                        .collect();
                 } else if let Some(i) = plot_idx("indicator_style") {
                     self.props.plot.entry(i).or_default().style = num(val).map(|v| v as i64);
                 } else if let Some(i) = plot_idx("indicator_width") {
                     self.props.plot.entry(i).or_default().width = num(val).map(|v| v as i64);
                 } else if let Some(i) = plot_idx("indicator_label") {
                     self.props.plot.entry(i).or_default().label = Some(unq);
-                } else if key.starts_with("indicator_level") && !key.starts_with("indicator_levelstyle") && !key.starts_with("indicator_levelwidth") {
+                } else if key.starts_with("indicator_level")
+                    && !key.starts_with("indicator_levelstyle")
+                    && !key.starts_with("indicator_levelwidth")
+                {
                     if let Some(v) = num(val) {
                         self.props.levels.push(v);
                     }
@@ -461,11 +611,25 @@ impl Parser {
     fn predeclare(&mut self, toks: &[Token]) {
         for w in toks.windows(2) {
             if let (Tok::Ident(k), Tok::Ident(n)) = (&w[0].tok, &w[1].tok) {
-                if (k == "class" || k == "struct" || k == "interface" || k == "union") && !self.type_names.contains(n) {
+                if (k == "class" || k == "struct" || k == "interface" || k == "union")
+                    && !self.type_names.contains(n)
+                {
                     let sym = self.interner.intern(n);
                     self.type_names.insert(n.clone());
-                    self.structs.insert(sym, Rc::new(StructDef { name: sym, fields: vec![] }));
-                    self.classes.insert(sym, ClassInfo { is_class: k != "struct", ..Default::default() });
+                    self.structs.insert(
+                        sym,
+                        Rc::new(StructDef {
+                            name: sym,
+                            fields: vec![],
+                        }),
+                    );
+                    self.classes.insert(
+                        sym,
+                        ClassInfo {
+                            is_class: k != "struct",
+                            ..Default::default()
+                        },
+                    );
                 }
             }
         }
@@ -487,7 +651,10 @@ impl Parser {
                     }
                     j += 1;
                 }
-                if let (Some(Tok::Ident(k)), Some(Tok::Ident(n))) = (toks.get(j + 1).map(|t| &t.tok), toks.get(j + 2).map(|t| &t.tok)) {
+                if let (Some(Tok::Ident(k)), Some(Tok::Ident(n))) = (
+                    toks.get(j + 1).map(|t| &t.tok),
+                    toks.get(j + 2).map(|t| &t.tok),
+                ) {
                     if k == "class" || k == "struct" || k == "interface" {
                         self.template_classes.insert(n.clone());
                     }
@@ -555,8 +722,16 @@ impl Parser {
     fn err_here(&self, msg: String) -> CompileError {
         let t = self.tok();
         match self.files.get(t.file as usize) {
-            Some(f) if t.file > 0 => CompileError { line: t.line, col: t.col, msg: format!("{} ({}): {}", f, t.line, msg) },
-            _ => CompileError { line: t.line, col: t.col, msg },
+            Some(f) if t.file > 0 => CompileError {
+                line: t.line,
+                col: t.col,
+                msg: format!("{} ({}): {}", f, t.line, msg),
+            },
+            _ => CompileError {
+                line: t.line,
+                col: t.col,
+                msg,
+            },
         }
     }
     fn tok_text(&self) -> String {
@@ -599,7 +774,9 @@ impl Parser {
     fn is_type_start(&self) -> bool {
         match self.peek() {
             Tok::Ident(s) => {
-                self.type_names.contains(s) || s.starts_with("ENUM_") || matches!(s.as_str(), "const" | "static")
+                self.type_names.contains(s)
+                    || s.starts_with("ENUM_")
+                    || matches!(s.as_str(), "const" | "static")
             }
             _ => false,
         }
@@ -617,7 +794,12 @@ impl Parser {
 
     fn parse_type_inner(&mut self) -> Result<(Ty, Option<String>), CompileError> {
         loop {
-            if self.is_ident("const") || self.is_ident("static") || self.is_ident("extern") || self.is_ident("unsigned") || self.is_ident("signed") {
+            if self.is_ident("const")
+                || self.is_ident("static")
+                || self.is_ident("extern")
+                || self.is_ident("unsigned")
+                || self.is_ident("signed")
+            {
                 self.bump();
             } else {
                 break;
@@ -627,7 +809,8 @@ impl Parser {
         let ty = match name.as_str() {
             "void" => Ty::Void,
             "bool" => Ty::Bool,
-            "char" | "uchar" | "short" | "ushort" | "int" | "uint" | "long" | "ulong" | "datetime" | "color" => Ty::Int,
+            "char" | "uchar" | "short" | "ushort" | "int" | "uint" | "long" | "ulong"
+            | "datetime" | "color" => Ty::Int,
             "float" | "double" => Ty::Double,
             "string" => Ty::Str,
             _ => {
@@ -699,28 +882,40 @@ impl Parser {
             "string" => 12,
             _ if t.starts_with("ENUM_") || self.enum_types.contains(t) => 4,
             _ => match self.interner.get(t).and_then(|s| self.structs.get(&s)) {
-                Some(d) => d.fields.iter().map(|(_, ty, dims)| {
-                    let one = match ty {
-                        Ty::Bool => 1,
-                        Ty::Int => 4,
-                        Ty::Double => 8,
-                        Ty::Str => 12,
-                        Ty::Struct(s) => self.type_size(self.interner.name(*s)),
-                        _ => 8,
-                    };
-                    let n: i64 = dims.iter().map(|d| match d {
-                        Some(Expr::Int(k)) => *k,
-                        _ => 1,
-                    }).product();
-                    one * n.max(1)
-                }).sum(),
+                Some(d) => d
+                    .fields
+                    .iter()
+                    .map(|(_, ty, dims)| {
+                        let one = match ty {
+                            Ty::Bool => 1,
+                            Ty::Int => 4,
+                            Ty::Double => 8,
+                            Ty::Str => 12,
+                            Ty::Struct(s) => self.type_size(self.interner.name(*s)),
+                            _ => 8,
+                        };
+                        let n: i64 = dims
+                            .iter()
+                            .map(|d| match d {
+                                Some(Expr::Int(k)) => *k,
+                                _ => 1,
+                            })
+                            .product();
+                        one * n.max(1)
+                    })
+                    .sum(),
                 None => 8,
             },
         }
     }
 
     fn var_size(&self, v: Sym) -> i64 {
-        let ty = self.globals.iter().rev().find(|g| g.name == v).map(|g| g.ty.clone());
+        let ty = self
+            .globals
+            .iter()
+            .rev()
+            .find(|g| g.name == v)
+            .map(|g| g.ty.clone());
         match ty {
             Some(Ty::Struct(s)) => self.type_size(self.interner.name(s)),
             Some(Ty::Double) => 8,
@@ -732,7 +927,9 @@ impl Parser {
     }
 
     fn is_class_name(&self, name: &str) -> bool {
-        self.interner.get(name).is_some_and(|s| self.classes.contains_key(&s))
+        self.interner
+            .get(name)
+            .is_some_and(|s| self.classes.contains_key(&s))
     }
 
     /// `template<typename T, ...>` followed by a class or a function.
@@ -801,9 +998,18 @@ impl Parser {
         }
         self.skip_template_args();
         if !self.structs.contains_key(&sym) {
-            self.structs.insert(sym, Rc::new(StructDef { name: sym, fields: vec![] }));
+            self.structs.insert(
+                sym,
+                Rc::new(StructDef {
+                    name: sym,
+                    fields: vec![],
+                }),
+            );
         }
-        self.classes.entry(sym).or_insert_with(|| ClassInfo { is_class, ..Default::default() });
+        self.classes.entry(sym).or_insert_with(|| ClassInfo {
+            is_class,
+            ..Default::default()
+        });
         if self.eat_punct(";") {
             return Ok(()); // forward declaration
         }
@@ -819,11 +1025,15 @@ impl Parser {
             base = Some(bs);
         }
         self.expect("{")?;
-        let mut fields: Vec<(Sym, Ty, Vec<Option<Expr>>)> = base.map(|b| self.structs[&b].fields.clone()).unwrap_or_default();
+        let mut fields: Vec<(Sym, Ty, Vec<Option<Expr>>)> = base
+            .map(|b| self.structs[&b].fields.clone())
+            .unwrap_or_default();
         let mut own = vec![];
         while !self.is_punct("}") {
             if matches!(self.peek(), Tok::Eof) {
-                return Err(self.err_here("'}' - unexpected end of program in class definition".into()));
+                return Err(
+                    self.err_here("'}' - unexpected end of program in class definition".into())
+                );
             }
             if self.is_ident("public") || self.is_ident("private") || self.is_ident("protected") {
                 self.bump();
@@ -837,7 +1047,12 @@ impl Parser {
                 self.parse_enum()?;
                 continue;
             }
-            if (self.is_ident("struct") || self.is_ident("class")) && matches!(self.peek_at(2), Tok::Punct("{") | Tok::Punct(":") | Tok::Punct(";")) {
+            if (self.is_ident("struct") || self.is_ident("class"))
+                && matches!(
+                    self.peek_at(2),
+                    Tok::Punct("{") | Tok::Punct(":") | Tok::Punct(";")
+                )
+            {
                 self.parse_class(false)?;
                 continue;
             }
@@ -871,7 +1086,8 @@ impl Parser {
             }
             let mut is_static = false;
             loop {
-                if self.is_ident("virtual") || self.is_ident("inline") || self.is_ident("explicit") {
+                if self.is_ident("virtual") || self.is_ident("inline") || self.is_ident("explicit")
+                {
                     self.bump();
                 } else if self.is_ident("static") {
                     is_static = true;
@@ -924,7 +1140,8 @@ impl Parser {
         }
         self.expect("}")?;
         self.eat_punct(";");
-        self.structs.insert(sym, Rc::new(StructDef { name: sym, fields }));
+        self.structs
+            .insert(sym, Rc::new(StructDef { name: sym, fields }));
         let info = self.classes.entry(sym).or_default();
         info.base = base;
         info.own_fields = own;
@@ -933,7 +1150,14 @@ impl Parser {
     }
 
     /// The part of a method after its parameter list: qualifiers, initializer list and body.
-    fn method_tail(&mut self, cls: Sym, name: &str, ret: Ty, params: Vec<Param>, line: u32) -> Result<(), CompileError> {
+    fn method_tail(
+        &mut self,
+        cls: Sym,
+        name: &str,
+        ret: Ty,
+        params: Vec<Param>,
+        line: u32,
+    ) -> Result<(), CompileError> {
         self.eat_ident_seq(&["const", "override", "final"]);
         let mut init_list = vec![];
         if self.eat_punct(":") {
@@ -963,8 +1187,22 @@ impl Parser {
         self.cur_func = saved;
         let body = body?;
         let sym = self.interner.intern(name);
-        let f = Rc::new(Func { name: sym, ret, params, body, line, class: Some(cls), init_list });
-        self.classes.entry(cls).or_default().methods.entry(sym).or_default().push(f);
+        let f = Rc::new(Func {
+            name: sym,
+            ret,
+            params,
+            body,
+            line,
+            class: Some(cls),
+            init_list,
+        });
+        self.classes
+            .entry(cls)
+            .or_default()
+            .methods
+            .entry(sym)
+            .or_default()
+            .push(f);
         Ok(())
     }
 
@@ -979,10 +1217,18 @@ impl Parser {
                 }
                 Tok::Ident(s) if s == "input" || s == "sinput" => self.parse_input()?,
                 Tok::Ident(s) if s == "enum" => self.parse_enum()?,
-                Tok::Ident(s) if s == "struct" || s == "class" || s == "interface" || s == "union" => self.parse_class(false)?,
+                Tok::Ident(s)
+                    if s == "struct" || s == "class" || s == "interface" || s == "union" =>
+                {
+                    self.parse_class(false)?
+                }
                 Tok::Ident(s) if s == "template" => self.parse_template()?,
                 Tok::Ident(s) if s == "typedef" => self.parse_typedef()?,
-                Tok::Ident(s) if self.is_class_name(&s) && matches!(self.peek_at(1), Tok::Punct("::") | Tok::Punct("<")) && self.is_ctor_def() => {
+                Tok::Ident(s)
+                    if self.is_class_name(&s)
+                        && matches!(self.peek_at(1), Tok::Punct("::") | Tok::Punct("<"))
+                        && self.is_ctor_def() =>
+                {
                     self.parse_ctor_def()?;
                 }
                 Tok::Ident(s) if s == "extern" => {
@@ -1010,14 +1256,37 @@ impl Parser {
         loop {
             let name = self.ident()?;
             let sym = self.interner.intern(&name);
-            let init = if self.eat_punct("=") { Some(self.parse_assign()?) } else { None };
+            let init = if self.eat_punct("=") {
+                Some(self.parse_assign()?)
+            } else {
+                None
+            };
             let id = self.new_id();
-            let label = self.comments.get(&line).cloned().filter(|c| !c.is_empty()).unwrap_or_else(|| name.clone());
+            let label = self
+                .comments
+                .get(&line)
+                .cloned()
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| name.clone());
             if let Some(en) = &enum_name {
                 self.var_enums.insert(sym, en.clone());
             }
-            self.inputs.push(InputDecl { name: sym, ty: ty.clone(), enum_name: enum_name.clone(), label, decl_index: self.globals.len() });
-            self.globals.push(VarDecl { id, name: sym, ty: ty.clone(), dims: vec![], init, is_static: false, line });
+            self.inputs.push(InputDecl {
+                name: sym,
+                ty: ty.clone(),
+                enum_name: enum_name.clone(),
+                label,
+                decl_index: self.globals.len(),
+            });
+            self.globals.push(VarDecl {
+                id,
+                name: sym,
+                ty: ty.clone(),
+                dims: vec![],
+                init,
+                is_static: false,
+                line,
+            });
             if !self.eat_punct(",") {
                 break;
             }
@@ -1037,7 +1306,9 @@ impl Parser {
             let m = self.ident()?;
             if self.eat_punct("=") {
                 let e = self.parse_ternary()?;
-                v = self.const_eval(&e).ok_or_else(|| self.err_here("constant expression expected".into()))?;
+                v = self
+                    .const_eval(&e)
+                    .ok_or_else(|| self.err_here("constant expression expected".into()))?;
             }
             let sym = self.interner.intern(&m);
             self.enum_consts.insert(sym, v);
@@ -1132,7 +1403,9 @@ impl Parser {
         let is_static = is_static || self.eat_word("static");
         // out-of-class method or static member: `int CFoo::Bar(...)`, `int CFoo::count = 0;`
         if let Tok::Ident(cname) = self.peek().clone() {
-            if self.is_class_name(&cname) && matches!(self.peek_at(1), Tok::Punct("::") | Tok::Punct("<")) {
+            if self.is_class_name(&cname)
+                && matches!(self.peek_at(1), Tok::Punct("::") | Tok::Punct("<"))
+            {
                 let save = self.pos;
                 self.bump();
                 self.skip_template_args();
@@ -1151,7 +1424,9 @@ impl Parser {
                         let params = self.parse_params()?;
                         return self.method_tail(cls, &format!("operator{}", op), ty, params, line);
                     }
-                    if matches!(self.peek(), Tok::Ident(_)) && matches!(self.peek_at(1), Tok::Punct("(")) {
+                    if matches!(self.peek(), Tok::Ident(_))
+                        && matches!(self.peek_at(1), Tok::Punct("("))
+                    {
                         let n = self.ident()?;
                         self.bump();
                         let params = self.parse_params()?;
@@ -1184,7 +1459,15 @@ impl Parser {
             let body = self.parse_block_body();
             self.cur_func = saved;
             let body = body?;
-            let f = Rc::new(Func { name: sym, ret: ty, params, body, line, class: None, init_list: vec![] });
+            let f = Rc::new(Func {
+                name: sym,
+                ret: ty,
+                params,
+                body,
+                line,
+                class: None,
+                init_list: vec![],
+            });
             self.funcs.entry(sym).or_default().push(f);
             return Ok(());
         }
@@ -1235,8 +1518,18 @@ impl Parser {
                 }
                 self.expect("]")?;
             }
-            let default = if self.eat_punct("=") { Some(self.parse_assign()?) } else { None };
-            params.push(Param { name: self.interner.intern(&name), ty, by_ref, is_array, default });
+            let default = if self.eat_punct("=") {
+                Some(self.parse_assign()?)
+            } else {
+                None
+            };
+            params.push(Param {
+                name: self.interner.intern(&name),
+                ty,
+                by_ref,
+                is_array,
+                default,
+            });
             if self.eat_punct(")") {
                 break;
             }
@@ -1245,7 +1538,12 @@ impl Parser {
         Ok(params)
     }
 
-    fn parse_declarators(&mut self, ty: Ty, is_static: bool, line: u32) -> Result<Vec<VarDecl>, CompileError> {
+    fn parse_declarators(
+        &mut self,
+        ty: Ty,
+        is_static: bool,
+        line: u32,
+    ) -> Result<Vec<VarDecl>, CompileError> {
         let enum_name = self.last_enum.clone();
         let mut out = vec![];
         let mut first = true;
@@ -1299,7 +1597,15 @@ impl Parser {
             if let Some(en) = &enum_name {
                 self.var_enums.insert(sym, en.clone());
             }
-            out.push(VarDecl { id, name: sym, ty: dty, dims, init, is_static, line });
+            out.push(VarDecl {
+                id,
+                name: sym,
+                ty: dty,
+                dims,
+                init,
+                is_static,
+                line,
+            });
             if !self.eat_punct(",") {
                 break;
             }
@@ -1330,7 +1636,8 @@ impl Parser {
         let mut out = vec![];
         while !self.is_punct("}") {
             if matches!(self.peek(), Tok::Eof) {
-                return Err(self.err_here("'}' - unbalanced parentheses / unexpected end of program".into()));
+                return Err(self
+                    .err_here("'}' - unbalanced parentheses / unexpected end of program".into()));
             }
             out.push(self.parse_stmt()?);
         }
@@ -1339,7 +1646,12 @@ impl Parser {
     }
 
     fn mk(&self, kind: StmtKind, line: u32, col: u32) -> Stmt {
-        Stmt { kind, line, col, file: self.stmt_file }
+        Stmt {
+            kind,
+            line,
+            col,
+            file: self.stmt_file,
+        }
     }
 
     fn looks_like_decl(&self) -> bool {
@@ -1353,8 +1665,13 @@ impl Parser {
                 let n = n.clone();
                 matches!(self.peek_at(1), Tok::Ident(_))
                     || matches!(self.peek_at(1), Tok::Punct("&"))
-                    || (matches!(self.peek_at(1), Tok::Punct("*")) && matches!(self.peek_at(2), Tok::Ident(_)) && (self.is_class_name(&n) || self.generics.contains(&n) || builtins::BUILTIN_CLASSES.contains(&n.as_str())))
-                    || (matches!(self.peek_at(1), Tok::Punct("<")) && self.template_classes.contains(&n))
+                    || (matches!(self.peek_at(1), Tok::Punct("*"))
+                        && matches!(self.peek_at(2), Tok::Ident(_))
+                        && (self.is_class_name(&n)
+                            || self.generics.contains(&n)
+                            || builtins::BUILTIN_CLASSES.contains(&n.as_str())))
+                    || (matches!(self.peek_at(1), Tok::Punct("<"))
+                        && self.template_classes.contains(&n))
             }
             _ => false,
         }
@@ -1423,9 +1740,17 @@ impl Parser {
                         self.expect(";")?;
                         Some(Box::new(self.mk(StmtKind::Expr(e), line, col)))
                     };
-                    let cond = if self.is_punct(";") { None } else { Some(self.parse_expr()?) };
+                    let cond = if self.is_punct(";") {
+                        None
+                    } else {
+                        Some(self.parse_expr()?)
+                    };
                     self.expect(";")?;
-                    let step = if self.is_punct(")") { None } else { Some(self.parse_expr()?) };
+                    let step = if self.is_punct(")") {
+                        None
+                    } else {
+                        Some(self.parse_expr()?)
+                    };
                     self.expect(")")?;
                     let body = self.parse_stmt()?;
                     return Ok(self.mk(StmtKind::For(init, cond, step, Box::new(body)), line, col));
@@ -1438,7 +1763,11 @@ impl Parser {
                 }
                 "return" => {
                     self.bump();
-                    let e = if self.is_punct(";") { None } else { Some(self.parse_expr()?) };
+                    let e = if self.is_punct(";") {
+                        None
+                    } else {
+                        Some(self.parse_expr()?)
+                    };
                     self.expect(";")?;
                     return Ok(self.mk(StmtKind::Return(e), line, col));
                 }
@@ -1464,11 +1793,17 @@ impl Parser {
                             self.bump();
                             let e = self.parse_ternary()?;
                             self.expect(":")?;
-                            arms.push(SwitchArm { label: Some(e), body: vec![] });
+                            arms.push(SwitchArm {
+                                label: Some(e),
+                                body: vec![],
+                            });
                         } else if self.is_ident("default") {
                             self.bump();
                             self.expect(":")?;
-                            arms.push(SwitchArm { label: None, body: vec![] });
+                            arms.push(SwitchArm {
+                                label: None,
+                                body: vec![],
+                            });
                         } else {
                             let s = self.parse_stmt()?;
                             match arms.last_mut() {
@@ -1483,7 +1818,9 @@ impl Parser {
                 _ => {}
             }
         }
-        if (self.is_ident("struct") || self.is_ident("class") || self.is_ident("union")) && matches!(self.peek_at(2), Tok::Punct("{") | Tok::Punct(":")) {
+        if (self.is_ident("struct") || self.is_ident("class") || self.is_ident("union"))
+            && matches!(self.peek_at(2), Tok::Punct("{") | Tok::Punct(":"))
+        {
             // a type defined inside a function
             self.parse_class(false)?;
             return Ok(self.mk(StmtKind::Empty, line, col));
@@ -1539,7 +1876,11 @@ impl Parser {
                 return Err(self.err_here("'=' - l-value required".into()));
             }
             self.bump();
-            let rhs = if self.is_punct("{") { self.parse_init_list()? } else { self.parse_assign()? };
+            let rhs = if self.is_punct("{") {
+                self.parse_init_list()?
+            } else {
+                self.parse_assign()?
+            };
             return Ok(Expr::Assign(op, Box::new(lhs), Box::new(rhs)));
         }
         Ok(lhs)
@@ -1630,13 +1971,18 @@ impl Parser {
                 let inc = self.is_punct("++");
                 self.bump();
                 let t = self.parse_unary()?;
-                Ok(Expr::IncDec { pre: true, inc, target: Box::new(t) })
+                Ok(Expr::IncDec {
+                    pre: true,
+                    inc,
+                    target: Box::new(t),
+                })
             }
             Tok::Punct("(") => {
                 // cast?
                 if let Tok::Ident(n) = self.peek_at(1).clone() {
                     let is_type = self.type_names.contains(&n) || n.starts_with("ENUM_");
-                    let ptr_cast = matches!(self.peek_at(2), Tok::Punct("*") | Tok::Punct("&")) && matches!(self.peek_at(3), Tok::Punct(")"));
+                    let ptr_cast = matches!(self.peek_at(2), Tok::Punct("*") | Tok::Punct("&"))
+                        && matches!(self.peek_at(3), Tok::Punct(")"));
                     if is_type && (matches!(self.peek_at(2), Tok::Punct(")")) || ptr_cast) {
                         self.bump();
                         let (ty, _) = self.parse_type()?;
@@ -1691,7 +2037,11 @@ impl Parser {
             } else if self.is_punct("++") || self.is_punct("--") {
                 let inc = self.is_punct("++");
                 self.bump();
-                e = Expr::IncDec { pre: false, inc, target: Box::new(e) };
+                e = Expr::IncDec {
+                    pre: false,
+                    inc,
+                    target: Box::new(e),
+                };
             } else {
                 break;
             }
@@ -1722,7 +2072,10 @@ impl Parser {
                 "sizeof" => {
                     self.expect("(")?;
                     let size = match self.peek().clone() {
-                        Tok::Ident(t) if (self.type_names.contains(&t) || t.starts_with("ENUM_")) && matches!(self.peek_at(1), Tok::Punct(")")) => {
+                        Tok::Ident(t)
+                            if (self.type_names.contains(&t) || t.starts_with("ENUM_"))
+                                && matches!(self.peek_at(1), Tok::Punct(")")) =>
+                        {
                             self.bump();
                             self.type_size(&t)
                         }
@@ -1741,7 +2094,11 @@ impl Parser {
                     let n = self.ident()?;
                     let sym = self.interner.intern(&n);
                     self.skip_template_args();
-                    let args = if self.eat_punct("(") { self.parse_args()? } else { vec![] };
+                    let args = if self.eat_punct("(") {
+                        self.parse_args()?
+                    } else {
+                        vec![]
+                    };
                     Ok(Expr::New(sym, args))
                 }
                 "dynamic_cast" => {
@@ -1805,7 +2162,10 @@ impl Parser {
 fn parse_color_value(v: &str) -> Option<u32> {
     let v = v.trim();
     if v.starts_with("C'") {
-        return super::lexer::parse_color_literal(v.trim_start_matches("C'").trim_end_matches('\'')).map(|c| c as u32);
+        return super::lexer::parse_color_literal(
+            v.trim_start_matches("C'").trim_end_matches('\''),
+        )
+        .map(|c| c as u32);
     }
     if let Some(h) = v.strip_prefix("0x") {
         return u32::from_str_radix(h, 16).ok();
@@ -1813,7 +2173,9 @@ fn parse_color_value(v: &str) -> Option<u32> {
     if let Ok(n) = v.parse::<i64>() {
         return Some(n as u32);
     }
-    builtins::constant(v).and_then(|c| c.as_i64()).map(|c| c as u32)
+    builtins::constant(v)
+        .and_then(|c| c.as_i64())
+        .map(|c| c as u32)
 }
 
 #[derive(Clone)]
@@ -1831,7 +2193,18 @@ struct Cond {
 fn predefined_macros() -> HashMap<String, Macro> {
     let mut m = HashMap::new();
     for n in ["__MQL5__", "__MQL__", "_RELEASE"] {
-        m.insert(n.to_string(), Macro { params: None, body: vec![Token { tok: Tok::Int(1), line: 0, col: 0, file: 0 }] });
+        m.insert(
+            n.to_string(),
+            Macro {
+                params: None,
+                body: vec![Token {
+                    tok: Tok::Int(1),
+                    line: 0,
+                    col: 0,
+                    file: 0,
+                }],
+            },
+        );
     }
     m
 }
@@ -1872,7 +2245,11 @@ fn token_text(t: &Tok) -> String {
         Tok::Int(v) => v.to_string(),
         Tok::Float(v) => {
             let s = v.to_string();
-            if s.contains('.') || s.contains('e') { s } else { format!("{}.0", s) }
+            if s.contains('.') || s.contains('e') {
+                s
+            } else {
+                format!("{}.0", s)
+            }
         }
         Tok::Str(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
         Tok::Punct(p) => p.to_string(),
@@ -1882,7 +2259,14 @@ fn token_text(t: &Tok) -> String {
 }
 
 /// Replace macro parameters in `body`, handling `#param` (stringify) and `a ## b` (paste).
-fn substitute(params: &[String], body: &[Token], raw: &[Vec<Token>], expanded: &[Vec<Token>], line: u32, col: u32) -> Result<Vec<Token>, CompileError> {
+fn substitute(
+    params: &[String],
+    body: &[Token],
+    raw: &[Vec<Token>],
+    expanded: &[Vec<Token>],
+    line: u32,
+    col: u32,
+) -> Result<Vec<Token>, CompileError> {
     let pidx = |t: &Tok| -> Option<usize> {
         match t {
             Tok::Ident(n) => params.iter().position(|p| p == n),
@@ -1897,7 +2281,12 @@ fn substitute(params: &[String], body: &[Token], raw: &[Vec<Token>], expanded: &
         if t.tok == Tok::Punct("#") {
             if let Some(k) = body.get(i + 1).and_then(|n| pidx(&n.tok)) {
                 let text: Vec<String> = raw[k].iter().map(|x| token_text(&x.tok)).collect();
-                out.push(Token { tok: Tok::Str(text.join(" ")), line, col, file: 0 });
+                out.push(Token {
+                    tok: Tok::Str(text.join(" ")),
+                    line,
+                    col,
+                    file: 0,
+                });
                 i += 2;
                 continue;
             }
@@ -1918,7 +2307,11 @@ fn substitute(params: &[String], body: &[Token], raw: &[Vec<Token>], expanded: &
                 text.push_str(&token_text(&first.tok));
                 rest = others.to_vec();
             }
-            let lexed = lex_fragment(&text).map_err(|e| CompileError { line, col, msg: e.msg })?;
+            let lexed = lex_fragment(&text).map_err(|e| CompileError {
+                line,
+                col,
+                msg: e.msg,
+            })?;
             for mut x in lexed.tokens {
                 if x.tok == Tok::Eof {
                     continue;

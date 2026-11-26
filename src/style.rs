@@ -33,11 +33,23 @@ pub fn apply(ctx: &egui::Context) {
 
     let mut style = (*ctx.style()).clone();
     style.text_styles = [
-        (TextStyle::Heading, FontId::new(14.0, FontFamily::Proportional)),
+        (
+            TextStyle::Heading,
+            FontId::new(14.0, FontFamily::Proportional),
+        ),
         (TextStyle::Body, FontId::new(12.0, FontFamily::Proportional)),
-        (TextStyle::Monospace, FontId::new(11.5, FontFamily::Monospace)),
-        (TextStyle::Button, FontId::new(12.0, FontFamily::Proportional)),
-        (TextStyle::Small, FontId::new(10.0, FontFamily::Proportional)),
+        (
+            TextStyle::Monospace,
+            FontId::new(11.5, FontFamily::Monospace),
+        ),
+        (
+            TextStyle::Button,
+            FontId::new(12.0, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Small,
+            FontId::new(10.0, FontFamily::Proportional),
+        ),
     ]
     .into();
     style.spacing.item_spacing = egui::vec2(4.0, 2.0);
@@ -49,19 +61,43 @@ pub fn apply(ctx: &egui::Context) {
 /// Draw an authentic Win32 sunken box for status bar compartments or inset fields.
 pub fn draw_sunken_box(painter: &egui::Painter, rect: egui::Rect) {
     painter.rect_filled(rect, 0.0, PANEL);
-    painter.line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0_f32, SUNKEN_DARK));
-    painter.line_segment([rect.left_top(), rect.left_bottom()], Stroke::new(1.0_f32, SUNKEN_DARK));
-    painter.line_segment([rect.right_top(), rect.right_bottom()], Stroke::new(1.0_f32, SUNKEN_LIGHT));
-    painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0_f32, SUNKEN_LIGHT));
+    painter.line_segment(
+        [rect.left_top(), rect.right_top()],
+        Stroke::new(1.0_f32, SUNKEN_DARK),
+    );
+    painter.line_segment(
+        [rect.left_top(), rect.left_bottom()],
+        Stroke::new(1.0_f32, SUNKEN_DARK),
+    );
+    painter.line_segment(
+        [rect.right_top(), rect.right_bottom()],
+        Stroke::new(1.0_f32, SUNKEN_LIGHT),
+    );
+    painter.line_segment(
+        [rect.left_bottom(), rect.right_bottom()],
+        Stroke::new(1.0_f32, SUNKEN_LIGHT),
+    );
 }
 
 /// Draw an authentic Win32 raised box for tabs or push buttons.
 pub fn draw_raised_box(painter: &egui::Painter, rect: egui::Rect, fill: Color32) {
     painter.rect_filled(rect, 0.0, fill);
-    painter.line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0_f32, SUNKEN_LIGHT));
-    painter.line_segment([rect.left_top(), rect.left_bottom()], Stroke::new(1.0_f32, SUNKEN_LIGHT));
-    painter.line_segment([rect.right_top(), rect.right_bottom()], Stroke::new(1.0_f32, SUNKEN_DARK));
-    painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0_f32, SUNKEN_DARK));
+    painter.line_segment(
+        [rect.left_top(), rect.right_top()],
+        Stroke::new(1.0_f32, SUNKEN_LIGHT),
+    );
+    painter.line_segment(
+        [rect.left_top(), rect.left_bottom()],
+        Stroke::new(1.0_f32, SUNKEN_LIGHT),
+    );
+    painter.line_segment(
+        [rect.right_top(), rect.right_bottom()],
+        Stroke::new(1.0_f32, SUNKEN_DARK),
+    );
+    painter.line_segment(
+        [rect.left_bottom(), rect.right_bottom()],
+        Stroke::new(1.0_f32, SUNKEN_DARK),
+    );
 }
 
 /// Draw a vertical Win32 toolbar grip separator.
@@ -69,10 +105,28 @@ pub fn draw_toolbar_grip(painter: &egui::Painter, rect: egui::Rect) {
     let x = rect.left() + 2.0;
     let top = rect.top() + 2.0;
     let bot = rect.bottom() - 2.0;
-    painter.line_segment([egui::pos2(x, top), egui::pos2(x, bot)], Stroke::new(1.0_f32, SUNKEN_DARK));
-    painter.line_segment([egui::pos2(x + 1.0, top + 1.0), egui::pos2(x + 1.0, bot + 1.0)], Stroke::new(1.0_f32, SUNKEN_LIGHT));
-    painter.line_segment([egui::pos2(x + 3.0, top), egui::pos2(x + 3.0, bot)], Stroke::new(1.0_f32, SUNKEN_DARK));
-    painter.line_segment([egui::pos2(x + 4.0, top + 1.0), egui::pos2(x + 4.0, bot + 1.0)], Stroke::new(1.0_f32, SUNKEN_LIGHT));
+    painter.line_segment(
+        [egui::pos2(x, top), egui::pos2(x, bot)],
+        Stroke::new(1.0_f32, SUNKEN_DARK),
+    );
+    painter.line_segment(
+        [
+            egui::pos2(x + 1.0, top + 1.0),
+            egui::pos2(x + 1.0, bot + 1.0),
+        ],
+        Stroke::new(1.0_f32, SUNKEN_LIGHT),
+    );
+    painter.line_segment(
+        [egui::pos2(x + 3.0, top), egui::pos2(x + 3.0, bot)],
+        Stroke::new(1.0_f32, SUNKEN_DARK),
+    );
+    painter.line_segment(
+        [
+            egui::pos2(x + 4.0, top + 1.0),
+            egui::pos2(x + 4.0, bot + 1.0),
+        ],
+        Stroke::new(1.0_f32, SUNKEN_LIGHT),
+    );
 }
 
 /// A shortcut label as the platform writes it: "Ctrl+M" becomes "Cmd+M" on macOS.

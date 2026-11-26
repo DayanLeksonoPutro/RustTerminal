@@ -23,7 +23,10 @@ impl TerminalApp {
             self.market.add_or_update_symbol(s);
         }
         if !syms.is_empty() {
-            out.push(format!("{} symbol(s) with the broker's properties", syms.len()));
+            out.push(format!(
+                "{} symbol(s) with the broker's properties",
+                syms.len()
+            ));
         }
         for i in &done {
             if self.market.symbol_index(&i.symbol).is_none() {
@@ -32,7 +35,14 @@ impl TerminalApp {
             if let Some(si) = self.market.symbol_index(&i.symbol) {
                 self.market.use_history(si);
             }
-            out.push(format!("{} {}: {} bars, {} - {}", i.symbol, i.tf.label(), i.bars, fmt_time(i.first, false), fmt_time(i.last, false)));
+            out.push(format!(
+                "{} {}: {} bars, {} - {}",
+                i.symbol,
+                i.tf.label(),
+                i.bars,
+                fmt_time(i.first, false),
+                fmt_time(i.last, false)
+            ));
         }
         out.extend(errors);
         if done.is_empty() && syms.is_empty() && out.is_empty() {
@@ -45,7 +55,9 @@ impl TerminalApp {
     }
 
     pub fn data_window(&mut self, ctx: &egui::Context) {
-        let Some(mut dlg) = self.dialogs.data.take() else { return };
+        let Some(mut dlg) = self.dialogs.data.take() else {
+            return;
+        };
         let mut open = true;
         egui::Window::new("History Data").collapsible(false).resizable(true).default_width(560.0).open(&mut open).show(ctx, |ui| {
             // ---- sources ----

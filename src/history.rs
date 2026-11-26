@@ -53,7 +53,11 @@ pub fn detect_timeframe(bars: &[Bar]) -> Option<Timeframe> {
     if bars.len() < 3 {
         return None;
     }
-    let mut d: Vec<i64> = bars.windows(2).map(|w| w[1].time - w[0].time).filter(|x| *x > 0).collect();
+    let mut d: Vec<i64> = bars
+        .windows(2)
+        .map(|w| w[1].time - w[0].time)
+        .filter(|x| *x > 0)
+        .collect();
     if d.is_empty() {
         return None;
     }
@@ -62,7 +66,11 @@ pub fn detect_timeframe(bars: &[Bar]) -> Option<Timeframe> {
     let typical = d[d.len() / 10];
     Timeframe::ALL.iter().copied().min_by_key(|tf| {
         let s = tf.secs();
-        let r = if typical > s { typical as f64 / s as f64 } else { s as f64 / typical as f64 };
+        let r = if typical > s {
+            typical as f64 / s as f64
+        } else {
+            s as f64 / typical as f64
+        };
         (r * 1000.0) as i64
     })
 }
@@ -72,7 +80,11 @@ fn parse_date(s: &str) -> Option<(i64, u32, u32)> {
     if parts.len() != 3 {
         if s.len() == 8 && s.chars().all(|c| c.is_ascii_digit()) {
             // YYYYMMDD
-            return Some((s[0..4].parse().ok()?, s[4..6].parse().ok()?, s[6..8].parse().ok()?));
+            return Some((
+                s[0..4].parse().ok()?,
+                s[4..6].parse().ok()?,
+                s[6..8].parse().ok()?,
+            ));
         }
         return None;
     }
@@ -135,22 +147,57 @@ fn parse_datetime_field(s: &str) -> Option<i64> {
 /// - one date-time column (text or unix seconds/milliseconds) followed by OHLC(V)
 /// Separator can be tab, comma or semicolon; a header line is optional.
 pub fn parse_csv(text: &str) -> Result<Vec<Bar>, String> {
-    let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
     let first = lines.first().ok_or("the file is empty")?;
-    let sep = [('\t', first.matches('\t').count()), (';', first.matches(';').count()), (',', first.matches(',').count())]
-        .into_iter()
-        .max_by_key(|(_, n)| *n)
-        .map(|(c, _)| c)
-        .unwrap_or(',');
-    let split = |l: &str| -> Vec<String> { l.split(sep).map(|f| f.trim().trim_matches('"').to_string()).collect() };
+    let sep = [
+        ('\t', first.matches('\t').count()),
+        (';', first.matches(';').count()),
+        (',', first.matches(',').count()),
+    ]
+    .into_iter()
+    .max_by_key(|(_, n)| *n)
+    .map(|(c, _)| c)
+    .unwrap_or(',');
+    let split = |l: &str| -> Vec<String> {
+        l.split(sep)
+            .map(|f| f.trim().trim_matches('"').to_string())
+            .collect()
+    };
     // header?
     let head = split(first);
-    let has_header = head.first().is_some_and(|f| f.chars().next().is_some_and(|c| c.is_alphabetic() || c == '<'));
-    let lower: Vec<String> = head.iter().map(|h| h.to_ascii_lowercase().trim_matches(|c| c == '<' || c == '>').to_string()).collect();
-    let col = |names: &[&str]| -> Option<usize> { lower.iter().position(|h| names.iter().any(|n| h == n)) };
-    let (mut i_date, mut i_time, mut i_o, mut i_h, mut i_l, mut i_c, mut i_v, mut i_sp) = (None, None, None, None, None, None, None, None);
+    let has_header = head.first().is_some_and(|f| {
+        f.chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '<')
+    });
+    let lower: Vec<String> = head
+        .iter()
+        .map(|h| {
+            h.to_ascii_lowercase()
+                .trim_matches(|c| c == '<' || c == '>')
+                .to_string()
+        })
+        .collect();
+    let col = |names: &[&str]| -> Option<usize> {
+        lower.iter().position(|h| names.iter().any(|n| h == n))
+    };
+    let (mut i_date, mut i_time, mut i_o, mut i_h, mut i_l, mut i_c, mut i_v, mut i_sp) =
+        (None, None, None, None, None, None, None, None);
     if has_header {
-        i_date = col(&["date", "datetime", "timestamp", "time (utc)", "gmt time", "local time", "open time", "open_time"]);
+        i_date = col(&[
+            "date",
+            "datetime",
+            "timestamp",
+            "time (utc)",
+            "gmt time",
+            "local time",
+            "open time",
+            "open_time",
+        ]);
         i_time = col(&["time"]);
         if i_date.is_none() {
             i_date = i_time;
@@ -167,7 +214,10 @@ pub fn parse_csv(text: &str) -> Result<Vec<Bar>, String> {
     let sample = body.first().map(|l| split(l)).ok_or("no price rows")?;
     if i_o.is_none() {
         // no header: decide from the first row
-        let two_cols = sample.len() >= 6 && parse_date(&sample[0]).is_some() && parse_time(&sample[1]).is_some() && !sample[0].contains(' ');
+        let two_cols = sample.len() >= 6
+            && parse_date(&sample[0]).is_some()
+            && parse_time(&sample[1]).is_some()
+            && !sample[0].contains(' ');
         if two_cols {
             i_date = Some(0);
             i_time = Some(1);
@@ -180,20 +230,31 @@ pub fn parse_csv(text: &str) -> Result<Vec<Bar>, String> {
         i_h = Some(o + 1);
         i_l = Some(o + 2);
         i_c = Some(o + 3);
-        i_v = if sample.len() > o + 4 { Some(o + 4) } else { None };
+        i_v = if sample.len() > o + 4 {
+            Some(o + 4)
+        } else {
+            None
+        };
         // MetaTrader 5 layout without header: tickvol, vol, spread
         if sample.len() > o + 6 {
             i_sp = Some(o + 6);
         }
     }
-    let (i_date, i_o, i_h, i_l, i_c) = (i_date.ok_or("no date column")?, i_o.ok_or("no open column")?, i_h.ok_or("no high column")?, i_l.ok_or("no low column")?, i_c.ok_or("no close column")?);
+    let (i_date, i_o, i_h, i_l, i_c) = (
+        i_date.ok_or("no date column")?,
+        i_o.ok_or("no open column")?,
+        i_h.ok_or("no high column")?,
+        i_l.ok_or("no low column")?,
+        i_c.ok_or("no close column")?,
+    );
     let mut bars = Vec::with_capacity(body.len());
     let mut bad = 0;
     for l in body {
         let f = split(l);
         let get = |i: usize| f.get(i).map(|s| s.as_str()).unwrap_or("");
         let t = match i_time {
-            Some(it) => parse_date(get(i_date)).and_then(|d| parse_time(get(it)).map(|s| to_unix(d.0, d.1, d.2, s))),
+            Some(it) => parse_date(get(i_date))
+                .and_then(|d| parse_time(get(it)).map(|s| to_unix(d.0, d.1, d.2, s))),
             None => parse_datetime_field(get(i_date)),
         };
         let num = |i: usize| get(i).replace(',', ".").parse::<f64>().ok();
@@ -201,7 +262,15 @@ pub fn parse_csv(text: &str) -> Result<Vec<Bar>, String> {
             (Some(time), Some(open), Some(high), Some(low), Some(close)) => {
                 let tick_volume = i_v.and_then(num).unwrap_or(0.0) as i64;
                 let spread = i_sp.and_then(num).unwrap_or(0.0) as i32;
-                bars.push(Bar { time, open, high: high.max(open).max(close), low: low.min(open).min(close), close, tick_volume, spread });
+                bars.push(Bar {
+                    time,
+                    open,
+                    high: high.max(open).max(close),
+                    low: low.min(open).min(close),
+                    close,
+                    tick_volume,
+                    spread,
+                });
             }
             _ => {
                 bad += 1;
@@ -223,14 +292,32 @@ pub fn parse_csv(text: &str) -> Result<Vec<Bar>, String> {
 /// `EURUSD_M1_202401020000_202411221759.csv` or `XAUUSD,H1.csv`.
 pub fn name_hints(path: &Path) -> (Option<String>, Option<Timeframe>) {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let parts: Vec<&str> = stem.split(|c: char| c == '_' || c == ',' || c == ' ' || c == '-').filter(|p| !p.is_empty()).collect();
-    let tf = parts.iter().find_map(|p| Timeframe::ALL.iter().copied().find(|t| t.label().eq_ignore_ascii_case(p)));
-    let sym = parts.first().filter(|p| p.chars().any(|c| c.is_alphabetic()) && Timeframe::ALL.iter().all(|t| !t.label().eq_ignore_ascii_case(p))).map(|s| s.to_ascii_uppercase());
+    let parts: Vec<&str> = stem
+        .split(|c: char| c == '_' || c == ',' || c == ' ' || c == '-')
+        .filter(|p| !p.is_empty())
+        .collect();
+    let tf = parts.iter().find_map(|p| {
+        Timeframe::ALL
+            .iter()
+            .copied()
+            .find(|t| t.label().eq_ignore_ascii_case(p))
+    });
+    let sym = parts
+        .first()
+        .filter(|p| {
+            p.chars().any(|c| c.is_alphabetic())
+                && Timeframe::ALL
+                    .iter()
+                    .all(|t| !t.label().eq_ignore_ascii_case(p))
+        })
+        .map(|s| s.to_ascii_uppercase());
     (sym, tf)
 }
 
 pub fn file_for(symbol: &str, tf: Timeframe) -> PathBuf {
-    history_dir().join(symbol.to_ascii_uppercase()).join(format!("{}.csv", tf.label()))
+    history_dir()
+        .join(symbol.to_ascii_uppercase())
+        .join(format!("{}.csv", tf.label()))
 }
 
 pub fn save(symbol: &str, tf: Timeframe, bars: &[Bar]) -> std::io::Result<()> {
@@ -241,7 +328,10 @@ pub fn save(symbol: &str, tf: Timeframe, bars: &[Bar]) -> std::io::Result<()> {
     let mut s = String::with_capacity(bars.len() * 48 + 64);
     s.push_str("time,open,high,low,close,tick_volume,spread\n");
     for b in bars {
-        s.push_str(&format!("{},{},{},{},{},{},{}\n", b.time, b.open, b.high, b.low, b.close, b.tick_volume, b.spread));
+        s.push_str(&format!(
+            "{},{},{},{},{},{},{}\n",
+            b.time, b.open, b.high, b.low, b.close, b.tick_volume, b.spread
+        ));
     }
     let tmp = p.with_extension("csv.tmp");
     std::fs::write(&tmp, s)?;
@@ -276,7 +366,11 @@ pub fn stored() -> Vec<(String, Vec<Timeframe>)> {
                 continue;
             }
             let sym = e.file_name().to_string_lossy().to_string();
-            let tfs: Vec<Timeframe> = Timeframe::ALL.iter().copied().filter(|t| file_for(&sym, *t).exists()).collect();
+            let tfs: Vec<Timeframe> = Timeframe::ALL
+                .iter()
+                .copied()
+                .filter(|t| file_for(&sym, *t).exists())
+                .collect();
             if !tfs.is_empty() {
                 out.push((sym, tfs));
             }
@@ -302,13 +396,23 @@ pub struct Imported {
 
 /// Import a CSV file. `symbol`/`tf` override what the file name and the data suggest.
 /// New bars are merged with already stored ones.
-pub fn import_file(path: &Path, symbol: Option<&str>, tf: Option<Timeframe>) -> Result<Imported, String> {
+pub fn import_file(
+    path: &Path,
+    symbol: Option<&str>,
+    tf: Option<Timeframe>,
+) -> Result<Imported, String> {
     let raw = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
     let text = crate::storage::decode_source(&raw);
     let bars = parse_csv(&text).map_err(|e| format!("{}: {}", path.display(), e))?;
     let (hint_sym, hint_tf) = name_hints(path);
-    let symbol = symbol.map(|s| s.to_ascii_uppercase()).or(hint_sym).ok_or("cannot tell the symbol from the file name; choose it")?;
-    let tf = tf.or(hint_tf).or_else(|| detect_timeframe(&bars)).ok_or("cannot tell the timeframe")?;
+    let symbol = symbol
+        .map(|s| s.to_ascii_uppercase())
+        .or(hint_sym)
+        .ok_or("cannot tell the symbol from the file name; choose it")?;
+    let tf = tf
+        .or(hint_tf)
+        .or_else(|| detect_timeframe(&bars))
+        .ok_or("cannot tell the timeframe")?;
     let merged = match read_stored(&symbol, tf) {
         Some(mut old) => {
             old.extend(bars);
@@ -326,7 +430,13 @@ pub fn import_file(path: &Path, symbol: Option<&str>, tf: Option<Timeframe>) -> 
         None => bars,
     };
     save(&symbol, tf, &merged).map_err(|e| e.to_string())?;
-    Ok(Imported { symbol, tf, bars: merged.len(), first: merged.first().map(|b| b.time).unwrap_or(0), last: merged.last().map(|b| b.time).unwrap_or(0) })
+    Ok(Imported {
+        symbol,
+        tf,
+        bars: merged.len(),
+        first: merged.first().map(|b| b.time).unwrap_or(0),
+        last: merged.last().map(|b| b.time).unwrap_or(0),
+    })
 }
 
 // ---------- symbol properties from a real terminal ----------
@@ -355,12 +465,18 @@ pub fn symbols_file() -> PathBuf {
 }
 
 pub fn load_symbols() -> Vec<SymbolInfo> {
-    std::fs::read_to_string(symbols_file()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    std::fs::read_to_string(symbols_file())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 pub fn save_symbols(list: &[SymbolInfo]) -> std::io::Result<()> {
     std::fs::create_dir_all(history_dir())?;
-    std::fs::write(symbols_file(), serde_json::to_string_pretty(list).unwrap_or_default())
+    std::fs::write(
+        symbols_file(),
+        serde_json::to_string_pretty(list).unwrap_or_default(),
+    )
 }
 
 /// Parse symbols.csv: name;description;digits;contract;vmin;vmax;vstep;spread;base;profit;margin;tick_value;tick_size;bid
@@ -411,12 +527,19 @@ pub fn terminal_export_dirs() -> Vec<PathBuf> {
         for p in prefixes {
             if let Ok(rd) = std::fs::read_dir(&p) {
                 for u in rd.flatten() {
-                    roots.push(u.path().join("AppData/Roaming/MetaQuotes/Terminal/Common/Files"));
+                    roots.push(
+                        u.path()
+                            .join("AppData/Roaming/MetaQuotes/Terminal/Common/Files"),
+                    );
                 }
             }
         }
     }
-    roots.into_iter().filter(|r| r.is_dir()).map(|r| r.join("RustTerminal")).collect()
+    roots
+        .into_iter()
+        .filter(|r| r.is_dir())
+        .map(|r| r.join("RustTerminal"))
+        .collect()
 }
 
 /// Import everything the export script wrote: `<SYMBOL>_<TF>.csv` bar files and
@@ -425,7 +548,9 @@ pub fn import_from_terminal() -> (Vec<Imported>, Vec<SymbolInfo>, Vec<String>) {
     let (mut done, mut syms, mut errors) = (vec![], vec![], vec![]);
     let dirs = terminal_export_dirs();
     if dirs.iter().all(|d| !d.is_dir()) {
-        errors.push("no export found: run the RustTerminal_Export script in MetaTrader 5 first".into());
+        errors.push(
+            "no export found: run the RustTerminal_Export script in MetaTrader 5 first".into(),
+        );
         return (done, syms, errors);
     }
     for d in dirs.iter().filter(|d| d.is_dir()) {
@@ -433,7 +558,11 @@ pub fn import_from_terminal() -> (Vec<Imported>, Vec<SymbolInfo>, Vec<String>) {
             let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
             files.sort();
             for p in files {
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                let name = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
                 if name.eq_ignore_ascii_case("symbols.csv") {
                     if let Ok(b) = std::fs::read(&p) {
                         syms.extend(parse_symbols_csv(&crate::storage::decode_source(&b)));
@@ -470,7 +599,8 @@ pub fn terminal_mql_dirs() -> Vec<PathBuf> {
     let mut drive_roots: Vec<PathBuf> = vec![];
     if let Ok(home) = std::env::var("HOME") {
         let home = PathBuf::from(home);
-        drive_roots.push(home.join("Library/Application Support/net.metaquotes.wine.metatrader5/drive_c"));
+        drive_roots
+            .push(home.join("Library/Application Support/net.metaquotes.wine.metatrader5/drive_c"));
         drive_roots.push(home.join(".wine/drive_c"));
         drive_roots.push(home.join(".mt5/drive_c"));
     }
@@ -481,7 +611,9 @@ pub fn terminal_mql_dirs() -> Vec<PathBuf> {
         out.push(d.join("Program Files/MetaTrader 5/MQL5"));
         if let Ok(rd) = std::fs::read_dir(d.join("users")) {
             for u in rd.flatten() {
-                if let Ok(t) = std::fs::read_dir(u.path().join("AppData/Roaming/MetaQuotes/Terminal")) {
+                if let Ok(t) =
+                    std::fs::read_dir(u.path().join("AppData/Roaming/MetaQuotes/Terminal"))
+                {
                     for term in t.flatten() {
                         out.push(term.path().join("MQL5"));
                     }
@@ -496,7 +628,9 @@ pub fn terminal_mql_dirs() -> Vec<PathBuf> {
             }
         }
     }
-    out.into_iter().filter(|p| p.join("Scripts").is_dir()).collect()
+    out.into_iter()
+        .filter(|p| p.join("Scripts").is_dir())
+        .collect()
 }
 
 /// Copy the export script into every MetaTrader 5 found. Returns where it was written.

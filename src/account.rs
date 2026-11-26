@@ -40,7 +40,10 @@ impl OrderType {
         })
     }
     pub fn is_buy(self) -> bool {
-        matches!(self, OrderType::Buy | OrderType::BuyLimit | OrderType::BuyStop)
+        matches!(
+            self,
+            OrderType::Buy | OrderType::BuyLimit | OrderType::BuyStop
+        )
     }
     pub fn label(self) -> &'static str {
         match self {
@@ -144,11 +147,25 @@ pub struct TradeResult {
 
 impl TradeResult {
     fn fail(retcode: i64, comment: &str) -> Self {
-        TradeResult { retcode, order: 0, deal: 0, price: 0.0, volume: 0.0, comment: comment.to_string() }
+        TradeResult {
+            retcode,
+            order: 0,
+            deal: 0,
+            price: 0.0,
+            volume: 0.0,
+            comment: comment.to_string(),
+        }
     }
 }
 
-pub fn profit_usd(spec: &SymbolSpec, buy: bool, volume: f64, open: f64, close: f64, cur_bid: f64) -> f64 {
+pub fn profit_usd(
+    spec: &SymbolSpec,
+    buy: bool,
+    volume: f64,
+    open: f64,
+    close: f64,
+    cur_bid: f64,
+) -> f64 {
     let diff = if buy { close - open } else { open - close };
     let raw = diff * volume * spec.contract_size;
     match spec.calc {
@@ -160,7 +177,10 @@ pub fn profit_usd(spec: &SymbolSpec, buy: bool, volume: f64, open: f64, close: f
                 raw
             }
         }
-        ProfitCalc::TickValue { tick_value, tick_size } => {
+        ProfitCalc::TickValue {
+            tick_value,
+            tick_size,
+        } => {
             if tick_size > 0.0 {
                 diff / tick_size * tick_value * volume
             } else {
@@ -176,8 +196,15 @@ pub fn margin_usd(spec: &SymbolSpec, volume: f64, price: f64, leverage: u32) -> 
         ProfitCalc::QuoteUsd => volume * spec.contract_size * price / lev,
         ProfitCalc::BaseUsd => volume * spec.contract_size / lev,
         // quote currency converted to USD with the broker's tick value
-        ProfitCalc::TickValue { tick_value, tick_size } => {
-            let rate = if tick_size > 0.0 && spec.contract_size > 0.0 { tick_value / (tick_size * spec.contract_size) } else { 1.0 };
+        ProfitCalc::TickValue {
+            tick_value,
+            tick_size,
+        } => {
+            let rate = if tick_size > 0.0 && spec.contract_size > 0.0 {
+                tick_value / (tick_size * spec.contract_size)
+            } else {
+                1.0
+            };
             volume * spec.contract_size * price * rate / lev
         }
     }
@@ -288,18 +315,38 @@ impl Account {
         };
         let volume = (volume / q.spec.volume_step).round() * q.spec.volume_step;
         if !Self::check_volume(&q.spec, volume) {
-            log.push(format!("'{}': failed market {} {:.2} {} [Invalid volume]", self.login, if buy { "buy" } else { "sell" }, volume, symbol));
+            log.push(format!(
+                "'{}': failed market {} {:.2} {} [Invalid volume]",
+                self.login,
+                if buy { "buy" } else { "sell" },
+                volume,
+                symbol
+            ));
             return TradeResult::fail(RET_INVALID_VOLUME, "Invalid volume");
         }
         let price = if buy { q.ask } else { q.bid };
         if !Self::check_stops(buy, price, sl, tp) {
-            log.push(format!("'{}': failed market {} {:.2} {} sl: {} tp: {} [Invalid stops]", self.login, if buy { "buy" } else { "sell" }, volume, symbol, fmt_price(sl, q.spec.digits), fmt_price(tp, q.spec.digits)));
+            log.push(format!(
+                "'{}': failed market {} {:.2} {} sl: {} tp: {} [Invalid stops]",
+                self.login,
+                if buy { "buy" } else { "sell" },
+                volume,
+                symbol,
+                fmt_price(sl, q.spec.digits),
+                fmt_price(tp, q.spec.digits)
+            ));
             return TradeResult::fail(RET_INVALID_STOPS, "Invalid stops");
         }
         let need = margin_usd(&q.spec, volume, price, self.leverage);
         let free = self.equity() - self.margin(quotes);
         if need > free {
-            log.push(format!("'{}': failed market {} {:.2} {} [No money]", self.login, if buy { "buy" } else { "sell" }, volume, symbol));
+            log.push(format!(
+                "'{}': failed market {} {:.2} {} [No money]",
+                self.login,
+                if buy { "buy" } else { "sell" },
+                volume,
+                symbol
+            ));
             return TradeResult::fail(RET_NO_MONEY, "No money");
         }
         let order = self.take_ticket();
@@ -354,7 +401,14 @@ impl Account {
             digits: q.spec.digits,
         });
         self.refresh(quotes);
-        TradeResult { retcode: RET_DONE, order, deal, price, volume, comment: "Request executed".into() }
+        TradeResult {
+            retcode: RET_DONE,
+            order,
+            deal,
+            price,
+            volume,
+            comment: "Request executed".into(),
+        }
     }
 
     pub fn close_position(
@@ -380,7 +434,14 @@ impl Account {
             return TradeResult::fail(RET_INVALID_VOLUME, "Invalid volume");
         }
         let price = if pos.buy { q.bid } else { q.ask };
-        let profit = round2(profit_usd(&q.spec, pos.buy, vol, pos.price_open, price, q.bid));
+        let profit = round2(profit_usd(
+            &q.spec,
+            pos.buy,
+            vol,
+            pos.price_open,
+            price,
+            q.bid,
+        ));
         let order = self.take_ticket();
         let deal = self.take_ticket();
         self.balance = round2(self.balance + profit);
@@ -407,7 +468,11 @@ impl Account {
             price,
             profit,
             magic: pos.magic,
-            comment: if reason.is_empty() { pos.comment.clone() } else { reason.trim().to_string() },
+            comment: if reason.is_empty() {
+                pos.comment.clone()
+            } else {
+                reason.trim().to_string()
+            },
             digits: pos.digits,
         });
         if vol >= pos.volume - 1e-9 {
@@ -416,10 +481,24 @@ impl Account {
             self.positions[idx].volume = ((pos.volume - vol) * 100.0).round() / 100.0;
         }
         self.refresh(quotes);
-        TradeResult { retcode: RET_DONE, order, deal, price, volume: vol, comment: "Request executed".into() }
+        TradeResult {
+            retcode: RET_DONE,
+            order,
+            deal,
+            price,
+            volume: vol,
+            comment: "Request executed".into(),
+        }
     }
 
-    pub fn modify_position(&mut self, quotes: &dyn QuoteSource, ticket: u64, sl: f64, tp: f64, log: &mut Vec<String>) -> TradeResult {
+    pub fn modify_position(
+        &mut self,
+        quotes: &dyn QuoteSource,
+        ticket: u64,
+        sl: f64,
+        tp: f64,
+        log: &mut Vec<String>,
+    ) -> TradeResult {
         let login = self.login;
         let p = match self.positions.iter_mut().find(|p| p.ticket == ticket) {
             Some(p) => p,
@@ -435,8 +514,22 @@ impl Account {
         }
         p.sl = sl;
         p.tp = tp;
-        log.push(format!("'{}': modify position #{} {} sl: {} tp: {}", login, ticket, p.symbol, fmt_price(sl, p.digits), fmt_price(tp, p.digits)));
-        TradeResult { retcode: RET_DONE, order: ticket, deal: 0, price, volume: p.volume, comment: "Request executed".into() }
+        log.push(format!(
+            "'{}': modify position #{} {} sl: {} tp: {}",
+            login,
+            ticket,
+            p.symbol,
+            fmt_price(sl, p.digits),
+            fmt_price(tp, p.digits)
+        ));
+        TradeResult {
+            retcode: RET_DONE,
+            order: ticket,
+            deal: 0,
+            price,
+            volume: p.volume,
+            comment: "Request executed".into(),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -469,14 +562,29 @@ impl Account {
             _ => false,
         };
         if !ok_price || price <= 0.0 {
-            log.push(format!("'{}': failed {} {:.2} {} at {} [Invalid price]", self.login, typ.label(), volume, symbol, fmt_price(price, q.spec.digits)));
+            log.push(format!(
+                "'{}': failed {} {:.2} {} at {} [Invalid price]",
+                self.login,
+                typ.label(),
+                volume,
+                symbol,
+                fmt_price(price, q.spec.digits)
+            ));
             return TradeResult::fail(RET_INVALID_PRICE, "Invalid price");
         }
         if !Self::check_stops(typ.is_buy(), price, sl, tp) {
             return TradeResult::fail(RET_INVALID_STOPS, "Invalid stops");
         }
         let ticket = self.take_ticket();
-        log.push(format!("'{}': {} {:.2} {} at {} placed #{}", self.login, typ.label(), volume, symbol, fmt_price(price, q.spec.digits), ticket));
+        log.push(format!(
+            "'{}': {} {:.2} {} at {} placed #{}",
+            self.login,
+            typ.label(),
+            volume,
+            symbol,
+            fmt_price(price, q.spec.digits),
+            ticket
+        ));
         self.orders.push(PendingOrder {
             ticket,
             symbol: q.spec.name.to_string(),
@@ -490,15 +598,36 @@ impl Account {
             comment: comment.to_string(),
             digits: q.spec.digits,
         });
-        TradeResult { retcode: RET_DONE, order: ticket, deal: 0, price, volume, comment: "Request executed".into() }
+        TradeResult {
+            retcode: RET_DONE,
+            order: ticket,
+            deal: 0,
+            price,
+            volume,
+            comment: "Request executed".into(),
+        }
     }
 
     pub fn delete_order(&mut self, ticket: u64, log: &mut Vec<String>) -> TradeResult {
         match self.orders.iter().position(|o| o.ticket == ticket) {
             Some(i) => {
                 let o = self.orders.remove(i);
-                log.push(format!("'{}': cancel order #{} {} {:.2} {}", self.login, ticket, o.typ.label(), o.volume, o.symbol));
-                TradeResult { retcode: RET_DONE, order: ticket, deal: 0, price: o.price, volume: o.volume, comment: "Request executed".into() }
+                log.push(format!(
+                    "'{}': cancel order #{} {} {:.2} {}",
+                    self.login,
+                    ticket,
+                    o.typ.label(),
+                    o.volume,
+                    o.symbol
+                ));
+                TradeResult {
+                    retcode: RET_DONE,
+                    order: ticket,
+                    deal: 0,
+                    price: o.price,
+                    volume: o.volume,
+                    comment: "Request executed".into(),
+                }
             }
             None => TradeResult::fail(RET_INVALID, "Order doesn't exist"),
         }
@@ -512,7 +641,14 @@ impl Account {
                 }
                 o.sl = sl;
                 o.tp = tp;
-                TradeResult { retcode: RET_DONE, order: ticket, deal: 0, price: o.price, volume: o.volume, comment: "Request executed".into() }
+                TradeResult {
+                    retcode: RET_DONE,
+                    order: ticket,
+                    deal: 0,
+                    price: o.price,
+                    volume: o.volume,
+                    comment: "Request executed".into(),
+                }
             }
             None => TradeResult::fail(RET_INVALID, "Order doesn't exist"),
         }
@@ -524,7 +660,14 @@ impl Account {
             if let Some(q) = quotes.quote(&p.symbol) {
                 let cur = if p.buy { q.bid } else { q.ask };
                 p.price_current = cur;
-                p.profit = round2(profit_usd(&q.spec, p.buy, p.volume, p.price_open, cur, q.bid));
+                p.profit = round2(profit_usd(
+                    &q.spec,
+                    p.buy,
+                    p.volume,
+                    p.price_open,
+                    cur,
+                    q.bid,
+                ));
             }
         }
     }
@@ -580,8 +723,27 @@ impl Account {
         for t in triggered {
             if let Some(i) = self.orders.iter().position(|o| o.ticket == t) {
                 let o = self.orders.remove(i);
-                log.push(format!("'{}': order #{} {} {:.2} {} at {} triggered", self.login, o.ticket, o.typ.label(), o.volume, o.symbol, fmt_price(o.price, o.digits)));
-                self.market_order(quotes, &o.symbol, o.typ.is_buy(), o.volume, o.sl, o.tp, o.magic, &o.comment, time, log);
+                log.push(format!(
+                    "'{}': order #{} {} {:.2} {} at {} triggered",
+                    self.login,
+                    o.ticket,
+                    o.typ.label(),
+                    o.volume,
+                    o.symbol,
+                    fmt_price(o.price, o.digits)
+                ));
+                self.market_order(
+                    quotes,
+                    &o.symbol,
+                    o.typ.is_buy(),
+                    o.volume,
+                    o.sl,
+                    o.tp,
+                    o.magic,
+                    &o.comment,
+                    time,
+                    log,
+                );
                 traded = true;
             }
         }
@@ -594,11 +756,18 @@ impl Account {
             let worst = self
                 .positions
                 .iter()
-                .min_by(|a, b| a.profit.partial_cmp(&b.profit).unwrap_or(std::cmp::Ordering::Equal))
+                .min_by(|a, b| {
+                    a.profit
+                        .partial_cmp(&b.profit)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .map(|p| p.ticket);
             match worst {
                 Some(t) => {
-                    log.push(format!("'{}': Stop Out: margin level below {:.0}%", self.login, STOP_OUT_LEVEL));
+                    log.push(format!(
+                        "'{}': Stop Out: margin level below {:.0}%",
+                        self.login, STOP_OUT_LEVEL
+                    ));
                     self.close_position(quotes, t, None, time, "[so] ", log);
                     traded = true;
                 }

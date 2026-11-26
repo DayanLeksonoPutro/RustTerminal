@@ -97,7 +97,11 @@ pub enum Expr {
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     Assign(Option<BinOp>, Box<Expr>, Box<Expr>),
-    IncDec { pre: bool, inc: bool, target: Box<Expr> },
+    IncDec {
+        pre: bool,
+        inc: bool,
+        target: Box<Expr>,
+    },
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     Cast(Ty, Box<Expr>),
     /// `{a, b, c}` initializer list

@@ -130,7 +130,12 @@ pub struct BuiltinInd {
 
 impl BuiltinInd {
     pub fn new(kind: IndKind, params: IndParams) -> Self {
-        BuiltinInd { kind, params, cache_key: (0, 0, 0), cache: None }
+        BuiltinInd {
+            kind,
+            params,
+            cache_key: (0, 0, 0),
+            cache: None,
+        }
     }
     pub fn invalidate(&mut self) {
         self.cache = None;
@@ -157,7 +162,11 @@ impl BuiltinInd {
         }
     }
     fn output(&mut self, bars: &[Bar]) -> &IndOutput {
-        let key = (bars.len(), bars.last().map(|b| b.time).unwrap_or(0), bars.last().map(|b| b.close.to_bits()).unwrap_or(0));
+        let key = (
+            bars.len(),
+            bars.last().map(|b| b.time).unwrap_or(0),
+            bars.last().map(|b| b.close.to_bits()).unwrap_or(0),
+        );
         if self.cache.is_none() || key != self.cache_key {
             self.cache = Some(indicators::compute(self.kind, &self.params, bars));
             self.cache_key = key;
@@ -292,7 +301,13 @@ impl Chart {
         let bars = inp.bars;
         let n = bars.len();
         if n == 0 {
-            painter.text(avail.center(), Align2::CENTER_CENTER, "Waiting for update", FontId::proportional(14.0), th.fg);
+            painter.text(
+                avail.center(),
+                Align2::CENTER_CENTER,
+                "Waiting for update",
+                FontId::proportional(14.0),
+                th.fg,
+            );
             return out;
         }
         let digits = inp.spec.digits;
@@ -300,30 +315,57 @@ impl Chart {
         // ----- layout: main window + sub-windows -----
         let plot_right = avail.right() - SCALE_W;
         let plot_bottom = avail.bottom() - TIME_H;
-        let sep_builtins: Vec<usize> = (0..self.builtins.len()).filter(|&i| self.builtins[i].kind.separate_window()).collect();
-        let sep_customs: Vec<usize> = (0..inp.customs.len()).filter(|&i| inp.customs[i].separate).collect();
+        let sep_builtins: Vec<usize> = (0..self.builtins.len())
+            .filter(|&i| self.builtins[i].kind.separate_window())
+            .collect();
+        let sep_customs: Vec<usize> = (0..inp.customs.len())
+            .filter(|&i| inp.customs[i].separate)
+            .collect();
         let nsub = sep_builtins.len() + sep_customs.len() + usize::from(self.volumes);
         let total_h = plot_bottom - avail.top();
-        let sub_h = if nsub == 0 { 0.0 } else { (total_h * 0.24).min(total_h * 0.6 / nsub as f32).max(50.0) };
-        let main_rect = Rect::from_min_max(avail.min, pos2(plot_right, plot_bottom - sub_h * nsub as f32));
+        let sub_h = if nsub == 0 {
+            0.0
+        } else {
+            (total_h * 0.24).min(total_h * 0.6 / nsub as f32).max(50.0)
+        };
+        let main_rect = Rect::from_min_max(
+            avail.min,
+            pos2(plot_right, plot_bottom - sub_h * nsub as f32),
+        );
         let mut sub_rects = vec![];
         for k in 0..nsub {
             let top = main_rect.bottom() + sub_h * k as f32;
-            sub_rects.push(Rect::from_min_max(pos2(avail.left(), top), pos2(plot_right, top + sub_h)));
+            sub_rects.push(Rect::from_min_max(
+                pos2(avail.left(), top),
+                pos2(plot_right, top + sub_h),
+            ));
         }
 
         // ----- one-click panel geometry (needed before zoom handling) -----
         let header_top = main_rect.top() + 22.0;
-        let overlay_count = self.builtins.iter().filter(|b| !b.kind.separate_window()).count() + inp.customs.iter().filter(|c| !c.separate).count();
+        let overlay_count = self
+            .builtins
+            .iter()
+            .filter(|b| !b.kind.separate_window())
+            .count()
+            + inp.customs.iter().filter(|c| !c.separate).count();
         let panel_top = header_top + if overlay_count > 0 { 16.0 } else { 0.0 } + 2.0;
         let sell_r = Rect::from_min_size(pos2(main_rect.left() + 6.0, panel_top), vec2(70.0, 40.0));
-        let buy_r = Rect::from_min_size(pos2(main_rect.left() + 126.0, panel_top), vec2(70.0, 40.0));
-        let lots_r = Rect::from_min_size(pos2(main_rect.left() + 78.0, panel_top + 8.0), vec2(46.0, 24.0));
+        let buy_r =
+            Rect::from_min_size(pos2(main_rect.left() + 126.0, panel_top), vec2(70.0, 40.0));
+        let lots_r = Rect::from_min_size(
+            pos2(main_rect.left() + 78.0, panel_top + 8.0),
+            vec2(46.0, 24.0),
+        );
         let hover_pos = ui.input(|i| i.pointer.hover_pos());
         let over_lots = self.one_click && hover_pos.is_some_and(|p| lots_r.contains(p));
 
         // ----- input: scroll / zoom / drag -----
-        let margin = if self.shift { (plot_right - avail.left()) * 0.12 } else { 4.0 };
+        let margin = if self.shift {
+            (plot_right - avail.left()) * 0.12
+        } else {
+            4.0
+        };
         if resp.hovered() {
             let scroll_delta = ui.input(|i| i.raw_scroll_delta);
             if over_lots {
@@ -333,22 +375,33 @@ impl Chart {
                 }
             } else {
                 if scroll_delta.y.abs() > 0.0 {
-                    self.zoom(if scroll_delta.y > 0.0 { 1.12 } else { 1.0 / 1.12 });
+                    self.zoom(if scroll_delta.y > 0.0 {
+                        1.12
+                    } else {
+                        1.0 / 1.12
+                    });
                 }
                 if scroll_delta.x.abs() > 0.0 {
-                    self.scroll = (self.scroll + scroll_delta.x / self.bar_w).max(-((plot_right - avail.left()) / self.bar_w) * 0.5);
+                    self.scroll = (self.scroll + scroll_delta.x / self.bar_w)
+                        .max(-((plot_right - avail.left()) / self.bar_w) * 0.5);
                     self.autoscroll = false;
                 }
             }
         }
         let drawing = self.tool.points() > 0;
         if resp.drag_started() && !drawing {
-            self.drag_origin = Some((resp.interact_pointer_pos().map(|p| p.x).unwrap_or(0.0), self.scroll));
+            self.drag_origin = Some((
+                resp.interact_pointer_pos().map(|p| p.x).unwrap_or(0.0),
+                self.scroll,
+            ));
         }
         if resp.dragged() && !drawing {
             if let (Some((x0, s0)), Some(p)) = (self.drag_origin, resp.interact_pointer_pos()) {
                 let max_scroll = n as f32 - 5.0;
-                self.scroll = (s0 + (p.x - x0) / self.bar_w).clamp(-((plot_right - avail.left()) / self.bar_w) * 0.5, max_scroll);
+                self.scroll = (s0 + (p.x - x0) / self.bar_w).clamp(
+                    -((plot_right - avail.left()) / self.bar_w) * 0.5,
+                    max_scroll,
+                );
                 self.autoscroll = false;
             }
         }
@@ -365,7 +418,11 @@ impl Chart {
         let idx_of = |x: f32| right_idx - (plot_right - margin - bw * 0.5 - x) / bw;
         let first_vis = (idx_of(avail.left()).floor() as i64).max(0) as usize;
         let last_vis = (idx_of(plot_right).ceil() as i64).clamp(0, n as i64 - 1) as usize;
-        let vis = if first_vis <= last_vis { first_vis..=last_vis } else { last_vis..=last_vis };
+        let vis = if first_vis <= last_vis {
+            first_vis..=last_vis
+        } else {
+            last_vis..=last_vis
+        };
 
         // time helpers
         let secs = self.tf.secs();
@@ -387,7 +444,9 @@ impl Chart {
             } else {
                 match bars.binary_search_by_key(&t, |b| b.time) {
                     Ok(i) => i as f32,
-                    Err(i) => i as f32 - 1.0 + ((t - bars[i - 1].time) as f32 / secs as f32).min(1.0),
+                    Err(i) => {
+                        i as f32 - 1.0 + ((t - bars[i - 1].time) as f32 / secs as f32).min(1.0)
+                    }
                 }
             }
         };
@@ -403,7 +462,12 @@ impl Chart {
         for ind in self.builtins.iter_mut() {
             if !ind.kind.separate_window() {
                 let o = ind.output(bars);
-                overlays.push(IndOutput { buffers: o.buffers.clone(), lines: o.lines.clone(), levels: vec![], fixed_range: None });
+                overlays.push(IndOutput {
+                    buffers: o.buffers.clone(),
+                    lines: o.lines.clone(),
+                    levels: vec![],
+                    fixed_range: None,
+                });
             }
         }
         for o in &overlays {
@@ -440,18 +504,42 @@ impl Chart {
         }
         let pad = (hi - lo) * 0.08;
         let (lo, hi) = (lo - pad, hi + pad);
-        let y_main = |p: f64| main_rect.bottom() - ((p - lo) / (hi - lo)) as f32 * main_rect.height();
-        let price_of_y = |y: f32| lo + ((main_rect.bottom() - y) / main_rect.height()) as f64 * (hi - lo);
+        let y_main =
+            |p: f64| main_rect.bottom() - ((p - lo) / (hi - lo)) as f32 * main_rect.height();
+        let price_of_y =
+            |y: f32| lo + ((main_rect.bottom() - y) / main_rect.height()) as f64 * (hi - lo);
 
         // ----- grid & price scale -----
         // Watermark in background (authentic MT5)
         let wm_text = format!("{}, {}", self.symbol, self.tf.label());
-        painter.text(main_rect.center(), Align2::CENTER_CENTER, wm_text, FontId::proportional(54.0), th.fg.gamma_multiply(0.06));
+        painter.text(
+            main_rect.center(),
+            Align2::CENTER_CENTER,
+            wm_text,
+            FontId::proportional(54.0),
+            th.fg.gamma_multiply(0.06),
+        );
 
         if self.shift {
             let sx = plot_right - margin;
-            painter.add(Shape::convex_polygon(vec![pos2(sx, main_rect.top() + 7.0), pos2(sx - 4.5, main_rect.top() + 1.0), pos2(sx + 4.5, main_rect.top() + 1.0)], th.fg.gamma_multiply(0.4), Stroke::NONE));
-            painter.add(Shape::convex_polygon(vec![pos2(sx, plot_bottom - 7.0), pos2(sx - 4.5, plot_bottom - 1.0), pos2(sx + 4.5, plot_bottom - 1.0)], th.fg.gamma_multiply(0.4), Stroke::NONE));
+            painter.add(Shape::convex_polygon(
+                vec![
+                    pos2(sx, main_rect.top() + 7.0),
+                    pos2(sx - 4.5, main_rect.top() + 1.0),
+                    pos2(sx + 4.5, main_rect.top() + 1.0),
+                ],
+                th.fg.gamma_multiply(0.4),
+                Stroke::NONE,
+            ));
+            painter.add(Shape::convex_polygon(
+                vec![
+                    pos2(sx, plot_bottom - 7.0),
+                    pos2(sx - 4.5, plot_bottom - 1.0),
+                    pos2(sx + 4.5, plot_bottom - 1.0),
+                ],
+                th.fg.gamma_multiply(0.4),
+                Stroke::NONE,
+            ));
         }
 
         let font = FontId::monospace(11.0);
@@ -462,7 +550,13 @@ impl Chart {
             if self.grid {
                 dotted_h(&painter, main_rect.left(), plot_right, y, th.grid);
             }
-            painter.text(pos2(plot_right + 4.0, y), Align2::LEFT_CENTER, fmt_price(p, digits), font.clone(), th.fg);
+            painter.text(
+                pos2(plot_right + 4.0, y),
+                Align2::LEFT_CENTER,
+                fmt_price(p, digits),
+                font.clone(),
+                th.fg,
+            );
             p += step;
         }
         let label_every = ((90.0 / bw).ceil() as usize).max(1);
@@ -473,8 +567,18 @@ impl Chart {
                     dotted_v(&painter, x, main_rect.top(), plot_bottom, th.grid);
                 }
                 let t = bars[i].time;
-                let label = if secs >= 86400 { fmt_time(t, false)[..10].to_string() } else { fmt_time(t, false)[5..].to_string() };
-                painter.text(pos2(x, plot_bottom + 2.0), Align2::CENTER_TOP, label, FontId::monospace(10.5), th.fg);
+                let label = if secs >= 86400 {
+                    fmt_time(t, false)[..10].to_string()
+                } else {
+                    fmt_time(t, false)[5..].to_string()
+                };
+                painter.text(
+                    pos2(x, plot_bottom + 2.0),
+                    Align2::CENTER_TOP,
+                    label,
+                    FontId::monospace(10.5),
+                    th.fg,
+                );
             }
         }
         if self.period_sep {
@@ -488,17 +592,38 @@ impl Chart {
             for i in vis.clone() {
                 if i > 0 && bars[i].time / sep_secs != bars[i - 1].time / sep_secs {
                     let x = x_of(i as f32) - bw * 0.5;
-                    dashed_v(&painter, x, main_rect.top(), plot_bottom, th.fg.gamma_multiply(0.5));
+                    dashed_v(
+                        &painter,
+                        x,
+                        main_rect.top(),
+                        plot_bottom,
+                        th.fg.gamma_multiply(0.5),
+                    );
                 }
             }
         }
-        painter.line_segment([pos2(plot_right, avail.top()), pos2(plot_right, plot_bottom)], Stroke::new(1.0_f32, th.fg.gamma_multiply(0.6)));
-        painter.line_segment([pos2(avail.left(), plot_bottom), pos2(plot_right, plot_bottom)], Stroke::new(1.0_f32, th.fg.gamma_multiply(0.6)));
+        painter.line_segment(
+            [pos2(plot_right, avail.top()), pos2(plot_right, plot_bottom)],
+            Stroke::new(1.0_f32, th.fg.gamma_multiply(0.6)),
+        );
+        painter.line_segment(
+            [
+                pos2(avail.left(), plot_bottom),
+                pos2(plot_right, plot_bottom),
+            ],
+            Stroke::new(1.0_f32, th.fg.gamma_multiply(0.6)),
+        );
         for r in &sub_rects {
-            painter.line_segment([pos2(r.left(), r.top()), pos2(avail.right(), r.top())], Stroke::new(1.0_f32, th.fg.gamma_multiply(0.6)));
+            painter.line_segment(
+                [pos2(r.left(), r.top()), pos2(avail.right(), r.top())],
+                Stroke::new(1.0_f32, th.fg.gamma_multiply(0.6)),
+            );
         }
 
-        let main_painter = painter.with_clip_rect(Rect::from_min_max(main_rect.min, pos2(plot_right, main_rect.max.y)));
+        let main_painter = painter.with_clip_rect(Rect::from_min_max(
+            main_rect.min,
+            pos2(plot_right, main_rect.max.y),
+        ));
         // fills behind price
         for c in inp.customs.iter().filter(|c| !c.separate) {
             draw_custom(&main_painter, c, &vis, &x_of, &y_main, bw, true);
@@ -513,12 +638,23 @@ impl Chart {
                     let x = x_of(i as f32);
                     let up = b.close >= b.open;
                     let outline = if up { th.bar_up } else { th.bar_down };
-                    main_painter.line_segment([pos2(x, y_main(b.high)), pos2(x, y_main(b.low))], Stroke::new(1.0_f32, outline));
+                    main_painter.line_segment(
+                        [pos2(x, y_main(b.high)), pos2(x, y_main(b.low))],
+                        Stroke::new(1.0_f32, outline),
+                    );
                     let (t, bt) = (y_main(b.open.max(b.close)), y_main(b.open.min(b.close)));
-                    let r = Rect::from_min_max(pos2(x - body_w / 2.0, t), pos2(x + body_w / 2.0, bt.max(t + 1.0)));
+                    let r = Rect::from_min_max(
+                        pos2(x - body_w / 2.0, t),
+                        pos2(x + body_w / 2.0, bt.max(t + 1.0)),
+                    );
                     main_painter.rect_filled(r, 0.0, if up { th.bull } else { th.bear });
                     if bw > 3.0 {
-                        main_painter.rect_stroke(r, 0.0, Stroke::new(1.0_f32, outline), egui::StrokeKind::Inside);
+                        main_painter.rect_stroke(
+                            r,
+                            0.0,
+                            Stroke::new(1.0_f32, outline),
+                            egui::StrokeKind::Inside,
+                        );
                     }
                 }
             }
@@ -526,15 +662,34 @@ impl Chart {
                 for i in vis.clone() {
                     let b = &bars[i];
                     let x = x_of(i as f32);
-                    let c = if b.close >= b.open { th.bar_up } else { th.bar_down };
+                    let c = if b.close >= b.open {
+                        th.bar_up
+                    } else {
+                        th.bar_down
+                    };
                     let s = Stroke::new(1.0_f32, c);
                     main_painter.line_segment([pos2(x, y_main(b.high)), pos2(x, y_main(b.low))], s);
-                    main_painter.line_segment([pos2(x - body_w / 2.0, y_main(b.open)), pos2(x, y_main(b.open))], s);
-                    main_painter.line_segment([pos2(x, y_main(b.close)), pos2(x + body_w / 2.0, y_main(b.close))], s);
+                    main_painter.line_segment(
+                        [
+                            pos2(x - body_w / 2.0, y_main(b.open)),
+                            pos2(x, y_main(b.open)),
+                        ],
+                        s,
+                    );
+                    main_painter.line_segment(
+                        [
+                            pos2(x, y_main(b.close)),
+                            pos2(x + body_w / 2.0, y_main(b.close)),
+                        ],
+                        s,
+                    );
                 }
             }
             ChartMode::Line => {
-                let pts: Vec<Pos2> = vis.clone().map(|i| pos2(x_of(i as f32), y_main(bars[i].close))).collect();
+                let pts: Vec<Pos2> = vis
+                    .clone()
+                    .map(|i| pos2(x_of(i as f32), y_main(bars[i].close)))
+                    .collect();
                 main_painter.add(Shape::line(pts, Stroke::new(1.0_f32, th.line)));
             }
         }
@@ -550,13 +705,27 @@ impl Chart {
         let yb = y_main(inp.bid);
         if yb > main_rect.top() && yb < main_rect.bottom() {
             dotted_h(&painter, main_rect.left(), plot_right, yb, th.bid);
-            price_tag(&painter, plot_right, yb, &fmt_price(inp.bid, digits), th.bid, Color32::WHITE);
+            price_tag(
+                &painter,
+                plot_right,
+                yb,
+                &fmt_price(inp.bid, digits),
+                th.bid,
+                Color32::WHITE,
+            );
         }
         if self.show_ask {
             let ya = y_main(inp.ask);
             if ya > main_rect.top() && ya < main_rect.bottom() {
                 dotted_h(&painter, main_rect.left(), plot_right, ya, th.ask);
-                price_tag(&painter, plot_right, ya, &fmt_price(inp.ask, digits), th.ask, Color32::WHITE);
+                price_tag(
+                    &painter,
+                    plot_right,
+                    ya,
+                    &fmt_price(inp.ask, digits),
+                    th.ask,
+                    Color32::WHITE,
+                );
             }
         }
 
@@ -564,13 +733,23 @@ impl Chart {
         let small = FontId::proportional(11.0);
         for p in &inp.positions {
             let y = y_main(p.price_open);
-            let col = if p.buy { Color32::from_rgb(30, 144, 255) } else { Color32::from_rgb(255, 80, 80) };
+            let col = if p.buy {
+                Color32::from_rgb(30, 144, 255)
+            } else {
+                Color32::from_rgb(255, 80, 80)
+            };
             if y > main_rect.top() && y < main_rect.bottom() {
                 dashed_h(&painter, main_rect.left(), plot_right, y, col);
                 painter.text(
                     pos2(plot_right - 6.0, y - 2.0),
                     Align2::RIGHT_BOTTOM,
-                    format!("#{} {} {:.2}  {:+.2}", p.ticket, if p.buy { "buy" } else { "sell" }, p.volume, p.profit),
+                    format!(
+                        "#{} {} {:.2}  {:+.2}",
+                        p.ticket,
+                        if p.buy { "buy" } else { "sell" },
+                        p.volume,
+                        p.profit
+                    ),
                     small.clone(),
                     col,
                 );
@@ -580,7 +759,13 @@ impl Chart {
                     let y = y_main(lvl);
                     if y > main_rect.top() && y < main_rect.bottom() {
                         dashed_h(&painter, main_rect.left(), plot_right, y, th.stops);
-                        painter.text(pos2(plot_right - 6.0, y - 2.0), Align2::RIGHT_BOTTOM, format!("#{} {}", p.ticket, name), small.clone(), th.stops);
+                        painter.text(
+                            pos2(plot_right - 6.0, y - 2.0),
+                            Align2::RIGHT_BOTTOM,
+                            format!("#{} {}", p.ticket, name),
+                            small.clone(),
+                            th.stops,
+                        );
                     }
                 }
             }
@@ -588,14 +773,36 @@ impl Chart {
         for o in &inp.orders {
             let y = y_main(o.price);
             if y > main_rect.top() && y < main_rect.bottom() {
-                dashed_h(&painter, main_rect.left(), plot_right, y, Color32::from_rgb(0, 200, 0));
-                painter.text(pos2(plot_right - 6.0, y - 2.0), Align2::RIGHT_BOTTOM, format!("#{} {} {:.2}", o.ticket, o.typ.label(), o.volume), small.clone(), Color32::from_rgb(0, 200, 0));
+                dashed_h(
+                    &painter,
+                    main_rect.left(),
+                    plot_right,
+                    y,
+                    Color32::from_rgb(0, 200, 0),
+                );
+                painter.text(
+                    pos2(plot_right - 6.0, y - 2.0),
+                    Align2::RIGHT_BOTTOM,
+                    format!("#{} {} {:.2}", o.ticket, o.typ.label(), o.volume),
+                    small.clone(),
+                    Color32::from_rgb(0, 200, 0),
+                );
             }
         }
 
         // ----- chart objects -----
         for o in &self.objects.list {
-            draw_object(&painter, o, main_rect, plot_right, &x_of, &idx_of_time, &y_main, th, digits);
+            draw_object(
+                &painter,
+                o,
+                main_rect,
+                plot_right,
+                &x_of,
+                &idx_of_time,
+                &y_main,
+                th,
+                digits,
+            );
         }
 
         // ----- sub-windows -----
@@ -604,15 +811,30 @@ impl Chart {
         if self.volumes {
             let r = sub_rects[sub_k];
             sub_k += 1;
-            let vmax = vis.clone().map(|i| bars[i].tick_volume).max().unwrap_or(1).max(1) as f64;
+            let vmax = vis
+                .clone()
+                .map(|i| bars[i].tick_volume)
+                .max()
+                .unwrap_or(1)
+                .max(1) as f64;
             let sp = painter.with_clip_rect(r);
             for i in vis.clone() {
                 let x = x_of(i as f32);
-                let y = r.bottom() - (bars[i].tick_volume as f64 / vmax) as f32 * (r.height() - 14.0);
+                let y =
+                    r.bottom() - (bars[i].tick_volume as f64 / vmax) as f32 * (r.height() - 14.0);
                 let up = i == 0 || bars[i].tick_volume >= bars[i - 1].tick_volume;
-                sp.line_segment([pos2(x, r.bottom()), pos2(x, y)], Stroke::new(body_w.min(3.0), if up { th.volumes } else { Color32::RED }));
+                sp.line_segment(
+                    [pos2(x, r.bottom()), pos2(x, y)],
+                    Stroke::new(body_w.min(3.0), if up { th.volumes } else { Color32::RED }),
+                );
             }
-            painter.text(r.left_top() + vec2(4.0, 2.0), Align2::LEFT_TOP, format!("Volumes {}", bars[n - 1].tick_volume), small.clone(), th.fg);
+            painter.text(
+                r.left_top() + vec2(4.0, 2.0),
+                Align2::LEFT_TOP,
+                format!("Volumes {}", bars[n - 1].tick_volume),
+                small.clone(),
+                th.fg,
+            );
             sub_info.push((r, 0.0, vmax));
         }
         for &bi in &sep_builtins {
@@ -657,21 +879,57 @@ impl Chart {
             }
             let yr = |v: f64| r.bottom() - ((v - slo) / (shi - slo)) as f32 * r.height();
             for l in &o.levels {
-                dashed_h(&painter, r.left(), r.right(), yr(*l), th.fg.gamma_multiply(0.45));
-                painter.text(pos2(plot_right + 4.0, yr(*l)), Align2::LEFT_CENTER, format!("{}", l), font.clone(), th.fg.gamma_multiply(0.7));
+                dashed_h(
+                    &painter,
+                    r.left(),
+                    r.right(),
+                    yr(*l),
+                    th.fg.gamma_multiply(0.45),
+                );
+                painter.text(
+                    pos2(plot_right + 4.0, yr(*l)),
+                    Align2::LEFT_CENTER,
+                    format!("{}", l),
+                    font.clone(),
+                    th.fg.gamma_multiply(0.7),
+                );
             }
-            let zero = if slo < 0.0 && shi > 0.0 { Some(yr(0.0)) } else { Some(r.bottom()) };
+            let zero = if slo < 0.0 && shi > 0.0 {
+                Some(yr(0.0))
+            } else {
+                Some(r.bottom())
+            };
             let sp = painter.with_clip_rect(r);
             draw_lines(&sp, o, &vis, &x_of, &yr, bw, zero);
-            let dec = if matches!(kind, IndKind::Macd | IndKind::Atr) { digits as usize + 1 } else { 2 };
+            let dec = if matches!(kind, IndKind::Macd | IndKind::Atr) {
+                digits as usize + 1
+            } else {
+                2
+            };
             let vals: Vec<String> = o
                 .buffers
                 .iter()
                 .take(o.lines.len())
-                .filter_map(|b| b.get(n - 1).filter(|v| v.is_finite()).map(|v| format!("{:.*}", dec, v)))
+                .filter_map(|b| {
+                    b.get(n - 1)
+                        .filter(|v| v.is_finite())
+                        .map(|v| format!("{:.*}", dec, v))
+                })
                 .collect();
-            painter.text(r.left_top() + vec2(4.0, 2.0), Align2::LEFT_TOP, format!("{} {}", label, vals.join(" ")), small.clone(), th.fg);
-            painter.text(pos2(plot_right + 4.0, r.top() + 6.0), Align2::LEFT_CENTER, format!("{:.*}", dec, shi), font.clone(), th.fg.gamma_multiply(0.7));
+            painter.text(
+                r.left_top() + vec2(4.0, 2.0),
+                Align2::LEFT_TOP,
+                format!("{} {}", label, vals.join(" ")),
+                small.clone(),
+                th.fg,
+            );
+            painter.text(
+                pos2(plot_right + 4.0, r.top() + 6.0),
+                Align2::LEFT_CENTER,
+                format!("{:.*}", dec, shi),
+                font.clone(),
+                th.fg.gamma_multiply(0.7),
+            );
             sub_info.push((r, slo, shi));
         }
         for &ci in &sep_customs {
@@ -717,8 +975,20 @@ impl Chart {
             }
             let yr = |v: f64| r.bottom() - ((v - slo) / (shi - slo)) as f32 * r.height();
             for l in &c.levels {
-                dashed_h(&painter, r.left(), r.right(), yr(*l), th.fg.gamma_multiply(0.45));
-                painter.text(pos2(plot_right + 4.0, yr(*l)), Align2::LEFT_CENTER, format!("{}", l), font.clone(), th.fg.gamma_multiply(0.7));
+                dashed_h(
+                    &painter,
+                    r.left(),
+                    r.right(),
+                    yr(*l),
+                    th.fg.gamma_multiply(0.45),
+                );
+                painter.text(
+                    pos2(plot_right + 4.0, yr(*l)),
+                    Align2::LEFT_CENTER,
+                    format!("{}", l),
+                    font.clone(),
+                    th.fg.gamma_multiply(0.7),
+                );
             }
             let sp = painter.with_clip_rect(r);
             draw_custom(&sp, c, &vis, &x_of, &yr, bw, true);
@@ -727,13 +997,24 @@ impl Chart {
             let vals: Vec<String> = c
                 .plots
                 .iter()
-                .filter_map(|(_, d)| d.first().and_then(|b| b.get(n - 1)).filter(|v| v.is_finite()).map(|v| format!("{:.*}", dec, v)))
+                .filter_map(|(_, d)| {
+                    d.first()
+                        .and_then(|b| b.get(n - 1))
+                        .filter(|v| v.is_finite())
+                        .map(|v| format!("{:.*}", dec, v))
+                })
                 .collect();
             let mut title = format!("{} {}", c.name, vals.join(" "));
             if let Some(e) = &c.error {
                 title.push_str(&format!("  [{}]", e));
             }
-            painter.text(r.left_top() + vec2(4.0, 2.0), Align2::LEFT_TOP, title, small.clone(), th.fg);
+            painter.text(
+                r.left_top() + vec2(4.0, 2.0),
+                Align2::LEFT_TOP,
+                title,
+                small.clone(),
+                th.fg,
+            );
             sub_info.push((r, slo, shi));
         }
 
@@ -760,43 +1041,134 @@ impl Chart {
             fmt_price(active_bar.close, digits),
             active_bar.tick_volume
         );
-        painter.text(main_rect.left_top() + vec2(6.0, 4.0), Align2::LEFT_TOP, ohlc_info, FontId::monospace(11.0), th.fg);
+        painter.text(
+            main_rect.left_top() + vec2(6.0, 4.0),
+            Align2::LEFT_TOP,
+            ohlc_info,
+            FontId::monospace(11.0),
+            th.fg,
+        );
 
         let mut header_y = header_top;
-        let mut overlay_labels: Vec<String> = self.builtins.iter().filter(|b| !b.kind.separate_window()).map(|b| b.label()).collect();
-        overlay_labels.extend(inp.customs.iter().filter(|c| !c.separate).map(|c| match &c.error {
-            Some(e) => format!("{} [{}]", c.name, e),
-            None => c.name.clone(),
-        }));
+        let mut overlay_labels: Vec<String> = self
+            .builtins
+            .iter()
+            .filter(|b| !b.kind.separate_window())
+            .map(|b| b.label())
+            .collect();
+        overlay_labels.extend(
+            inp.customs
+                .iter()
+                .filter(|c| !c.separate)
+                .map(|c| match &c.error {
+                    Some(e) => format!("{} [{}]", c.name, e),
+                    None => c.name.clone(),
+                }),
+        );
         if !overlay_labels.is_empty() {
-            painter.text(pos2(main_rect.left() + 6.0, header_y), Align2::LEFT_TOP, overlay_labels.join("   "), small.clone(), th.fg.gamma_multiply(0.75));
+            painter.text(
+                pos2(main_rect.left() + 6.0, header_y),
+                Align2::LEFT_TOP,
+                overlay_labels.join("   "),
+                small.clone(),
+                th.fg.gamma_multiply(0.75),
+            );
             header_y += 16.0;
         }
         if self.one_click {
             // Win32 MT5 styled One-Click Trading widget
             painter.rect_filled(sell_r, 1.0, Color32::from_rgb(215, 30, 30));
-            painter.rect_stroke(sell_r, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(160, 20, 20)), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                sell_r,
+                1.0,
+                Stroke::new(1.0_f32, Color32::from_rgb(160, 20, 20)),
+                egui::StrokeKind::Inside,
+            );
             painter.rect_filled(buy_r, 1.0, Color32::from_rgb(20, 100, 220));
-            painter.rect_stroke(buy_r, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(10, 70, 160)), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                buy_r,
+                1.0,
+                Stroke::new(1.0_f32, Color32::from_rgb(10, 70, 160)),
+                egui::StrokeKind::Inside,
+            );
             painter.rect_filled(lots_r, 1.0, Color32::from_rgb(245, 245, 248));
-            painter.rect_stroke(lots_r, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(180, 180, 185)), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                lots_r,
+                1.0,
+                Stroke::new(1.0_f32, Color32::from_rgb(180, 180, 185)),
+                egui::StrokeKind::Inside,
+            );
 
-            painter.text(sell_r.center_top() + vec2(0.0, 3.0), Align2::CENTER_TOP, "SELL", FontId::proportional(10.0), Color32::WHITE);
-            painter.text(buy_r.center_top() + vec2(0.0, 3.0), Align2::CENTER_TOP, "BUY", FontId::proportional(10.0), Color32::WHITE);
-            painter.text(sell_r.center_bottom() - vec2(0.0, 3.0), Align2::CENTER_BOTTOM, fmt_price(inp.bid, digits), FontId::monospace(13.0), Color32::WHITE);
-            painter.text(buy_r.center_bottom() - vec2(0.0, 3.0), Align2::CENTER_BOTTOM, fmt_price(inp.ask, digits), FontId::monospace(13.0), Color32::WHITE);
-            painter.text(lots_r.center(), Align2::CENTER_CENTER, format!("{:.2}", self.lots), FontId::monospace(12.0), Color32::BLACK);
+            painter.text(
+                sell_r.center_top() + vec2(0.0, 3.0),
+                Align2::CENTER_TOP,
+                "SELL",
+                FontId::proportional(10.0),
+                Color32::WHITE,
+            );
+            painter.text(
+                buy_r.center_top() + vec2(0.0, 3.0),
+                Align2::CENTER_TOP,
+                "BUY",
+                FontId::proportional(10.0),
+                Color32::WHITE,
+            );
+            painter.text(
+                sell_r.center_bottom() - vec2(0.0, 3.0),
+                Align2::CENTER_BOTTOM,
+                fmt_price(inp.bid, digits),
+                FontId::monospace(13.0),
+                Color32::WHITE,
+            );
+            painter.text(
+                buy_r.center_bottom() - vec2(0.0, 3.0),
+                Align2::CENTER_BOTTOM,
+                fmt_price(inp.ask, digits),
+                FontId::monospace(13.0),
+                Color32::WHITE,
+            );
+            painter.text(
+                lots_r.center(),
+                Align2::CENTER_CENTER,
+                format!("{:.2}", self.lots),
+                FontId::monospace(12.0),
+                Color32::BLACK,
+            );
 
             // lot stepper buttons
-            let up_rect = Rect::from_min_size(lots_r.right_top() + vec2(1.0, 0.0), vec2(11.0, 11.0));
-            let dn_rect = Rect::from_min_size(lots_r.right_top() + vec2(1.0, 12.0), vec2(11.0, 11.0));
+            let up_rect =
+                Rect::from_min_size(lots_r.right_top() + vec2(1.0, 0.0), vec2(11.0, 11.0));
+            let dn_rect =
+                Rect::from_min_size(lots_r.right_top() + vec2(1.0, 12.0), vec2(11.0, 11.0));
             painter.rect_filled(up_rect, 1.0, Color32::from_rgb(232, 232, 236));
-            painter.rect_stroke(up_rect, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(170, 170, 175)), egui::StrokeKind::Inside);
-            painter.text(up_rect.center(), Align2::CENTER_CENTER, "▲", FontId::proportional(7.0), Color32::BLACK);
+            painter.rect_stroke(
+                up_rect,
+                1.0,
+                Stroke::new(1.0_f32, Color32::from_rgb(170, 170, 175)),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                up_rect.center(),
+                Align2::CENTER_CENTER,
+                "▲",
+                FontId::proportional(7.0),
+                Color32::BLACK,
+            );
 
             painter.rect_filled(dn_rect, 1.0, Color32::from_rgb(232, 232, 236));
-            painter.rect_stroke(dn_rect, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(170, 170, 175)), egui::StrokeKind::Inside);
-            painter.text(dn_rect.center(), Align2::CENTER_CENTER, "▼", FontId::proportional(7.0), Color32::BLACK);
+            painter.rect_stroke(
+                dn_rect,
+                1.0,
+                Stroke::new(1.0_f32, Color32::from_rgb(170, 170, 175)),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                dn_rect.center(),
+                Align2::CENTER_CENTER,
+                "▼",
+                FontId::proportional(7.0),
+                Color32::BLACK,
+            );
 
             if resp.clicked() {
                 if let Some(pp) = resp.interact_pointer_pos() {
@@ -815,19 +1187,41 @@ impl Chart {
         }
         if !self.comment.is_empty() {
             for (k, line) in self.comment.lines().enumerate() {
-                painter.text(pos2(main_rect.left() + 6.0, header_y + k as f32 * 14.0), Align2::LEFT_TOP, line, small.clone(), th.fg);
+                painter.text(
+                    pos2(main_rect.left() + 6.0, header_y + k as f32 * 14.0),
+                    Align2::LEFT_TOP,
+                    line,
+                    small.clone(),
+                    th.fg,
+                );
             }
         }
         if let Some(e) = &inp.expert {
-            let col = if inp.algo && e.running { Color32::from_rgb(30, 144, 255) } else { Color32::GRAY };
+            let col = if inp.algo && e.running {
+                Color32::from_rgb(30, 144, 255)
+            } else {
+                Color32::GRAY
+            };
             let c = pos2(plot_right - 10.0, main_rect.top() + 12.0);
             painter.circle_filled(c, 7.0, col);
             painter.circle_filled(c + vec2(-2.3, -1.8), 1.0, Color32::WHITE);
             painter.circle_filled(c + vec2(2.3, -1.8), 1.0, Color32::WHITE);
             let mouth = if inp.algo && e.running { 1.6 } else { -0.8 };
-            painter.line_segment([c + vec2(-3.0, 2.2), c + vec2(0.0, 2.2 + mouth)], Stroke::new(1.0_f32, Color32::WHITE));
-            painter.line_segment([c + vec2(0.0, 2.2 + mouth), c + vec2(3.0, 2.2)], Stroke::new(1.0_f32, Color32::WHITE));
-            painter.text(c - vec2(11.0, 0.0), Align2::RIGHT_CENTER, &e.name, FontId::proportional(12.0), th.fg);
+            painter.line_segment(
+                [c + vec2(-3.0, 2.2), c + vec2(0.0, 2.2 + mouth)],
+                Stroke::new(1.0_f32, Color32::WHITE),
+            );
+            painter.line_segment(
+                [c + vec2(0.0, 2.2 + mouth), c + vec2(3.0, 2.2)],
+                Stroke::new(1.0_f32, Color32::WHITE),
+            );
+            painter.text(
+                c - vec2(11.0, 0.0),
+                Align2::RIGHT_CENTER,
+                &e.name,
+                FontId::proportional(12.0),
+                th.fg,
+            );
         }
 
         // ----- crosshair / hover -----
@@ -842,7 +1236,12 @@ impl Chart {
                     for (bi, l) in o.lines.iter().enumerate() {
                         let src = ii as i64 - l.shift;
                         if src >= 0 {
-                            if let Some(v) = o.buffers.get(bi).and_then(|bb| bb.get(src as usize)).filter(|v| v.is_finite()) {
+                            if let Some(v) = o
+                                .buffers
+                                .get(bi)
+                                .and_then(|bb| bb.get(src as usize))
+                                .filter(|v| v.is_finite())
+                            {
                                 vals.push((l.label.clone(), fmt_price(*v, digits)));
                             }
                         }
@@ -851,14 +1250,23 @@ impl Chart {
                 for &bi in &sep_builtins {
                     let o = self.builtins[bi].output(bars);
                     for (k, l) in o.lines.iter().enumerate() {
-                        if let Some(v) = o.buffers.get(k).and_then(|bb| bb.get(ii)).filter(|v| v.is_finite()) {
+                        if let Some(v) = o
+                            .buffers
+                            .get(k)
+                            .and_then(|bb| bb.get(ii))
+                            .filter(|v| v.is_finite())
+                        {
                             vals.push((l.label.clone(), format!("{:.4}", v)));
                         }
                     }
                 }
                 for c in &inp.customs {
                     for (p, d) in &c.plots {
-                        if let Some(v) = d.first().and_then(|bb| bb.get(ii)).filter(|v| v.is_finite()) {
+                        if let Some(v) = d
+                            .first()
+                            .and_then(|bb| bb.get(ii))
+                            .filter(|v| v.is_finite())
+                        {
                             vals.push((p.label.clone(), format!("{:.5}", v)));
                         }
                     }
@@ -870,14 +1278,33 @@ impl Chart {
                 painter.line_segment([pos2(avail.left(), hp.y), pos2(plot_right, hp.y)], cs);
                 painter.line_segment([pos2(hp.x, avail.top()), pos2(hp.x, plot_bottom)], cs);
                 if main_rect.contains(hp) {
-                    price_tag(&painter, plot_right, hp.y, &fmt_price(price_of_y(hp.y), digits), th.fg, th.bg);
-                } else if let Some((r, slo, shi)) = sub_info.iter().find(|(r, _, _)| r.contains(hp)) {
+                    price_tag(
+                        &painter,
+                        plot_right,
+                        hp.y,
+                        &fmt_price(price_of_y(hp.y), digits),
+                        th.fg,
+                        th.bg,
+                    );
+                } else if let Some((r, slo, shi)) = sub_info.iter().find(|(r, _, _)| r.contains(hp))
+                {
                     let v = slo + ((r.bottom() - hp.y) / r.height()) as f64 * (shi - slo);
-                    price_tag(&painter, plot_right, hp.y, &format!("{:.4}", v), th.fg, th.bg);
+                    price_tag(
+                        &painter,
+                        plot_right,
+                        hp.y,
+                        &format!("{:.4}", v),
+                        th.fg,
+                        th.bg,
+                    );
                 }
                 let t = time_of_idx(idx_of(hp.x));
-                let galley = painter.layout_no_wrap(fmt_time(t, false), FontId::monospace(10.5), th.bg);
-                let tr = Rect::from_center_size(pos2(hp.x, plot_bottom + 9.0), galley.size() + vec2(8.0, 3.0));
+                let galley =
+                    painter.layout_no_wrap(fmt_time(t, false), FontId::monospace(10.5), th.bg);
+                let tr = Rect::from_center_size(
+                    pos2(hp.x, plot_bottom + 9.0),
+                    galley.size() + vec2(8.0, 3.0),
+                );
                 painter.rect_filled(tr, 0.0, th.fg);
                 painter.galley(tr.min + vec2(4.0, 1.5), galley, th.bg);
             }
@@ -927,11 +1354,19 @@ impl Chart {
             if let Some(hp) = hover {
                 let (t0, p0) = self.pending[0];
                 let a = pos2(x_of(idx_of_time(t0)), y_main(p0));
-                painter.line_segment([a, hp], Stroke::new(1.0_f32, Color32::from_rgb(30, 144, 255)));
+                painter.line_segment(
+                    [a, hp],
+                    Stroke::new(1.0_f32, Color32::from_rgb(30, 144, 255)),
+                );
             }
         }
         if drawing {
-            out.status = Some(format!("{}: click on the chart ({} point{})", tool_name(self.tool), self.tool.points(), if self.tool.points() > 1 { "s" } else { "" }));
+            out.status = Some(format!(
+                "{}: click on the chart ({} point{})",
+                tool_name(self.tool),
+                self.tool.points(),
+                if self.tool.points() > 1 { "s" } else { "" }
+            ));
         }
 
         // ----- context menu -----
@@ -1008,7 +1443,10 @@ impl Chart {
                     }
                 });
             }
-            if ui.button(crate::style::sc("Objects List...   Ctrl+B")).clicked() {
+            if ui
+                .button(crate::style::sc("Objects List...   Ctrl+B"))
+                .clicked()
+            {
                 out.actions.push(ChartAction::ObjectsList);
                 ui.close_menu();
             }
@@ -1083,7 +1521,10 @@ pub fn nice_step(raw: f64) -> f64 {
 fn dotted_h(p: &egui::Painter, x0: f32, x1: f32, y: f32, c: Color32) {
     let mut x = x0;
     while x < x1 {
-        p.line_segment([pos2(x, y), pos2((x + 1.0_f32).min(x1), y)], Stroke::new(1.0_f32, c));
+        p.line_segment(
+            [pos2(x, y), pos2((x + 1.0_f32).min(x1), y)],
+            Stroke::new(1.0_f32, c),
+        );
         x += 4.0;
     }
 }
@@ -1091,7 +1532,10 @@ fn dotted_h(p: &egui::Painter, x0: f32, x1: f32, y: f32, c: Color32) {
 fn dotted_v(p: &egui::Painter, x: f32, y0: f32, y1: f32, c: Color32) {
     let mut y = y0;
     while y < y1 {
-        p.line_segment([pos2(x, y), pos2(x, (y + 1.0_f32).min(y1))], Stroke::new(1.0_f32, c));
+        p.line_segment(
+            [pos2(x, y), pos2(x, (y + 1.0_f32).min(y1))],
+            Stroke::new(1.0_f32, c),
+        );
         y += 4.0;
     }
 }
@@ -1099,7 +1543,10 @@ fn dotted_v(p: &egui::Painter, x: f32, y0: f32, y1: f32, c: Color32) {
 fn dashed_h(p: &egui::Painter, x0: f32, x1: f32, y: f32, c: Color32) {
     let mut x = x0;
     while x < x1 {
-        p.line_segment([pos2(x, y), pos2((x + 3.0).min(x1), y)], Stroke::new(1.0_f32, c));
+        p.line_segment(
+            [pos2(x, y), pos2((x + 3.0).min(x1), y)],
+            Stroke::new(1.0_f32, c),
+        );
         x += 6.0;
     }
 }
@@ -1107,7 +1554,10 @@ fn dashed_h(p: &egui::Painter, x0: f32, x1: f32, y: f32, c: Color32) {
 fn dashed_v(p: &egui::Painter, x: f32, y0: f32, y1: f32, c: Color32) {
     let mut y = y0;
     while y < y1 {
-        p.line_segment([pos2(x, y), pos2(x, (y + 3.0).min(y1))], Stroke::new(1.0_f32, c));
+        p.line_segment(
+            [pos2(x, y), pos2(x, (y + 3.0).min(y1))],
+            Stroke::new(1.0_f32, c),
+        );
         y += 6.0;
     }
 }
@@ -1122,7 +1572,11 @@ fn styled_line(p: &egui::Painter, a: Pos2, b: Pos2, stroke: Stroke, style: LineS
             if len < 0.5 {
                 return;
             }
-            let (on, off) = if style == LineStyle::Dash { (6.0, 4.0) } else { (2.0, 3.0) };
+            let (on, off) = if style == LineStyle::Dash {
+                (6.0, 4.0)
+            } else {
+                (2.0, 3.0)
+            };
             let dir = (b - a) / len;
             let mut d = 0.0;
             while d < len {
@@ -1136,7 +1590,10 @@ fn styled_line(p: &egui::Painter, a: Pos2, b: Pos2, stroke: Stroke, style: LineS
 
 fn price_tag(p: &egui::Painter, x: f32, y: f32, text: &str, bg: Color32, fg: Color32) {
     let galley = p.layout_no_wrap(text.to_string(), FontId::monospace(11.0), fg);
-    let r = Rect::from_min_size(pos2(x + 1.0, y - galley.size().y / 2.0 - 1.0), galley.size() + vec2(6.0, 2.0));
+    let r = Rect::from_min_size(
+        pos2(x + 1.0, y - galley.size().y / 2.0 - 1.0),
+        galley.size() + vec2(6.0, 2.0),
+    );
     p.rect_filled(r, 0.0, bg);
     p.galley(r.min + vec2(3.0, 1.0), galley, fg);
 }
@@ -1151,7 +1608,9 @@ fn draw_lines(
     zero: Option<f32>,
 ) {
     for (bi, l) in o.lines.iter().enumerate() {
-        let Some(buf) = o.buffers.get(bi) else { continue };
+        let Some(buf) = o.buffers.get(bi) else {
+            continue;
+        };
         let stroke = Stroke::new(l.width, l.color);
         let get = |i: usize| -> Option<f64> {
             let src = i as i64 - l.shift;
@@ -1160,7 +1619,9 @@ fn draw_lines(
             }
             buf.get(src as usize).copied().filter(|v| v.is_finite())
         };
-        let lo = vis.start().saturating_sub(l.shift.unsigned_abs() as usize + 1);
+        let lo = vis
+            .start()
+            .saturating_sub(l.shift.unsigned_abs() as usize + 1);
         let hi = *vis.end() + l.shift.unsigned_abs() as usize + 1;
         match l.draw {
             DrawKind::Line => {
@@ -1191,14 +1652,21 @@ fn draw_lines(
                                 }
                             }
                         }
-                        p.line_segment([pos2(x, base), pos2(x, y_of(v))], Stroke::new((bw * 0.6).clamp(1.0, 6.0), c));
+                        p.line_segment(
+                            [pos2(x, base), pos2(x, y_of(v))],
+                            Stroke::new((bw * 0.6).clamp(1.0, 6.0), c),
+                        );
                     }
                 }
             }
             DrawKind::Dots => {
                 for i in vis.clone() {
                     if let Some(v) = get(i) {
-                        p.circle_filled(pos2(x_of(i as f32), y_of(v)), (bw * 0.18).clamp(1.2, 3.0), l.color);
+                        p.circle_filled(
+                            pos2(x_of(i as f32), y_of(v)),
+                            (bw * 0.18).clamp(1.2, 3.0),
+                            l.color,
+                        );
                     }
                 }
             }
@@ -1209,9 +1677,17 @@ fn draw_lines(
                         let y = y_of(v);
                         let s = 4.0;
                         let pts = if l.draw == DrawKind::ArrowUp {
-                            vec![pos2(x, y - 10.0), pos2(x - s, y - 4.0), pos2(x + s, y - 4.0)]
+                            vec![
+                                pos2(x, y - 10.0),
+                                pos2(x - s, y - 4.0),
+                                pos2(x + s, y - 4.0),
+                            ]
                         } else {
-                            vec![pos2(x, y + 10.0), pos2(x - s, y + 4.0), pos2(x + s, y + 4.0)]
+                            vec![
+                                pos2(x, y + 10.0),
+                                pos2(x - s, y + 4.0),
+                                pos2(x + s, y + 4.0),
+                            ]
                         };
                         p.add(Shape::convex_polygon(pts, l.color, Stroke::NONE));
                     }
@@ -1222,8 +1698,18 @@ fn draw_lines(
 }
 
 fn plot_color(plot: &PlotRt, data: &[Vec<f64>], color_buf: Option<usize>, i: usize) -> Color32 {
-    let idx = color_buf.and_then(|cb| data.get(cb)).and_then(|b| b.get(i)).filter(|v| v.is_finite()).map(|v| *v as usize).unwrap_or(0);
-    let c = plot.colors.get(idx).or(plot.colors.first()).copied().unwrap_or(0xFF901E);
+    let idx = color_buf
+        .and_then(|cb| data.get(cb))
+        .and_then(|b| b.get(i))
+        .filter(|v| v.is_finite())
+        .map(|v| *v as usize)
+        .unwrap_or(0);
+    let c = plot
+        .colors
+        .get(idx)
+        .or(plot.colors.first())
+        .copied()
+        .unwrap_or(0xFF901E);
     bgr(c)
 }
 
@@ -1253,7 +1739,10 @@ fn draw_custom(
             if i < begin {
                 return None;
             }
-            data.get(b).and_then(|d| d.get(i)).copied().filter(|x| x.is_finite())
+            data.get(b)
+                .and_then(|d| d.get(i))
+                .copied()
+                .filter(|x| x.is_finite())
         };
         let xs = |i: usize| x_of(i as f32 + shift as f32);
         let width = plot.width.max(1) as f32;
@@ -1275,7 +1764,13 @@ fn draw_custom(
                         Some(val) => {
                             let pt = pos2(xs(i), y_of(val));
                             if let Some(pp) = prev {
-                                styled_line(p, pp, pt, Stroke::new(width, plot_color(plot, data, cb, i)), style_of(plot.style));
+                                styled_line(
+                                    p,
+                                    pp,
+                                    pt,
+                                    Stroke::new(width, plot_color(plot, data, cb, i)),
+                                    style_of(plot.style),
+                                );
                             }
                             prev = Some(pt);
                         }
@@ -1292,7 +1787,11 @@ fn draw_custom(
                 // start from the last non-empty point before the visible range
                 let mut first = start;
                 while first > 0 {
-                    let has = if dt == 6 || dt == 15 { v(0, first).or(v(1, first)) } else { v(0, first) };
+                    let has = if dt == 6 || dt == 15 {
+                        v(0, first).or(v(1, first))
+                    } else {
+                        v(0, first)
+                    };
                     if has.is_some() && first < start {
                         break;
                     }
@@ -1300,11 +1799,18 @@ fn draw_custom(
                 }
                 let mut prev: Option<Pos2> = None;
                 for i in first..=(end + 1).min(n - 1) {
-                    let val = if dt == 6 || dt == 15 { v(0, i).or(v(1, i)) } else { v(0, i) };
+                    let val = if dt == 6 || dt == 15 {
+                        v(0, i).or(v(1, i))
+                    } else {
+                        v(0, i)
+                    };
                     if let Some(val) = val {
                         let pt = pos2(xs(i), y_of(val));
                         if let Some(pp) = prev {
-                            p.line_segment([pp, pt], Stroke::new(width, plot_color(plot, data, cb, i)));
+                            p.line_segment(
+                                [pp, pt],
+                                Stroke::new(width, plot_color(plot, data, cb, i)),
+                            );
                         }
                         prev = Some(pt);
                     }
@@ -1316,7 +1822,13 @@ fn draw_custom(
                 for i in start..=end {
                     if let Some(val) = v(0, i) {
                         let x = xs(i);
-                        p.line_segment([pos2(x, base), pos2(x, y_of(val))], Stroke::new(width.max((bw * 0.5).min(width * 2.0)), plot_color(plot, data, cb, i)));
+                        p.line_segment(
+                            [pos2(x, base), pos2(x, y_of(val))],
+                            Stroke::new(
+                                width.max((bw * 0.5).min(width * 2.0)),
+                                plot_color(plot, data, cb, i),
+                            ),
+                        );
                     }
                 }
             }
@@ -1325,7 +1837,10 @@ fn draw_custom(
                 for i in start..=end {
                     if let (Some(a), Some(b)) = (v(0, i), v(1, i)) {
                         let x = xs(i);
-                        p.line_segment([pos2(x, y_of(a)), pos2(x, y_of(b))], Stroke::new(width, plot_color(plot, data, cb, i)));
+                        p.line_segment(
+                            [pos2(x, y_of(a)), pos2(x, y_of(b))],
+                            Stroke::new(width, plot_color(plot, data, cb, i)),
+                        );
                     }
                 }
             }
@@ -1337,10 +1852,26 @@ fn draw_custom(
                         let (x, y) = (xs(i), y_of(val));
                         match plot.arrow {
                             233 | 225 | 241 => {
-                                p.add(Shape::convex_polygon(vec![pos2(x, y - 6.0), pos2(x - 4.0, y + 2.0), pos2(x + 4.0, y + 2.0)], c, Stroke::NONE));
+                                p.add(Shape::convex_polygon(
+                                    vec![
+                                        pos2(x, y - 6.0),
+                                        pos2(x - 4.0, y + 2.0),
+                                        pos2(x + 4.0, y + 2.0),
+                                    ],
+                                    c,
+                                    Stroke::NONE,
+                                ));
                             }
                             234 | 226 | 242 => {
-                                p.add(Shape::convex_polygon(vec![pos2(x, y + 6.0), pos2(x - 4.0, y - 2.0), pos2(x + 4.0, y - 2.0)], c, Stroke::NONE));
+                                p.add(Shape::convex_polygon(
+                                    vec![
+                                        pos2(x, y + 6.0),
+                                        pos2(x - 4.0, y - 2.0),
+                                        pos2(x + 4.0, y - 2.0),
+                                    ],
+                                    c,
+                                    Stroke::NONE,
+                                ));
                             }
                             _ => {
                                 p.circle_filled(pos2(x, y), 1.5 + width, c);
@@ -1351,12 +1882,27 @@ fn draw_custom(
             }
             7 => {
                 let c0 = bgr(plot.colors.first().copied().unwrap_or(0x904030));
-                let c1 = bgr(plot.colors.get(1).copied().unwrap_or(plot.colors.first().copied().unwrap_or(0x304090)));
+                let c1 = bgr(plot
+                    .colors
+                    .get(1)
+                    .copied()
+                    .unwrap_or(plot.colors.first().copied().unwrap_or(0x304090)));
                 for i in start..end {
-                    if let (Some(a0), Some(b0), Some(a1), Some(b1)) = (v(0, i), v(1, i), v(0, i + 1), v(1, i + 1)) {
+                    if let (Some(a0), Some(b0), Some(a1), Some(b1)) =
+                        (v(0, i), v(1, i), v(0, i + 1), v(1, i + 1))
+                    {
                         let col = if a1 >= b1 { c0 } else { c1 };
-                        let pts = vec![pos2(xs(i), y_of(a0)), pos2(xs(i + 1), y_of(a1)), pos2(xs(i + 1), y_of(b1)), pos2(xs(i), y_of(b0))];
-                        p.add(Shape::convex_polygon(pts, col.gamma_multiply(0.85), Stroke::NONE));
+                        let pts = vec![
+                            pos2(xs(i), y_of(a0)),
+                            pos2(xs(i + 1), y_of(a1)),
+                            pos2(xs(i + 1), y_of(b1)),
+                            pos2(xs(i), y_of(b0)),
+                        ];
+                        p.add(Shape::convex_polygon(
+                            pts,
+                            col.gamma_multiply(0.85),
+                            Stroke::NONE,
+                        ));
                     }
                 }
             }
@@ -1364,16 +1910,30 @@ fn draw_custom(
                 let cb = if dt == 16 || dt == 17 { Some(4) } else { None };
                 let body = (bw * 0.7).max(1.0);
                 for i in start..=end {
-                    if let (Some(o), Some(h), Some(l), Some(cl)) = (v(0, i), v(1, i), v(2, i), v(3, i)) {
+                    if let (Some(o), Some(h), Some(l), Some(cl)) =
+                        (v(0, i), v(1, i), v(2, i), v(3, i))
+                    {
                         let x = xs(i);
                         let c = plot_color(plot, data, cb, i);
-                        p.line_segment([pos2(x, y_of(h)), pos2(x, y_of(l))], Stroke::new(1.0_f32, c));
+                        p.line_segment(
+                            [pos2(x, y_of(h)), pos2(x, y_of(l))],
+                            Stroke::new(1.0_f32, c),
+                        );
                         if dt == 9 || dt == 17 {
-                            let r = Rect::from_min_max(pos2(x - body / 2.0, y_of(o.max(cl))), pos2(x + body / 2.0, y_of(o.min(cl)) + 1.0));
+                            let r = Rect::from_min_max(
+                                pos2(x - body / 2.0, y_of(o.max(cl))),
+                                pos2(x + body / 2.0, y_of(o.min(cl)) + 1.0),
+                            );
                             p.rect_filled(r, 0.0, c);
                         } else {
-                            p.line_segment([pos2(x - body / 2.0, y_of(o)), pos2(x, y_of(o))], Stroke::new(1.0_f32, c));
-                            p.line_segment([pos2(x, y_of(cl)), pos2(x + body / 2.0, y_of(cl))], Stroke::new(1.0_f32, c));
+                            p.line_segment(
+                                [pos2(x - body / 2.0, y_of(o)), pos2(x, y_of(o))],
+                                Stroke::new(1.0_f32, c),
+                            );
+                            p.line_segment(
+                                [pos2(x, y_of(cl)), pos2(x + body / 2.0, y_of(cl))],
+                                Stroke::new(1.0_f32, c),
+                            );
                         }
                     }
                 }
@@ -1407,17 +1967,42 @@ fn draw_object(
     match o.kind {
         ObjKind::HLine => {
             let y = y_of(o.prices[0]);
-            styled_line(&clip, pos2(main.left(), y), pos2(plot_right, y), stroke, style);
+            styled_line(
+                &clip,
+                pos2(main.left(), y),
+                pos2(plot_right, y),
+                stroke,
+                style,
+            );
             if y > main.top() && y < main.bottom() {
-                price_tag(p, plot_right, y, &fmt_price(o.prices[0], digits), c, Color32::BLACK);
+                price_tag(
+                    p,
+                    plot_right,
+                    y,
+                    &fmt_price(o.prices[0], digits),
+                    c,
+                    Color32::BLACK,
+                );
                 if !o.text.is_empty() {
-                    clip.text(pos2(plot_right - 4.0, y - 1.0), Align2::RIGHT_BOTTOM, &o.text, FontId::proportional(10.5), c);
+                    clip.text(
+                        pos2(plot_right - 4.0, y - 1.0),
+                        Align2::RIGHT_BOTTOM,
+                        &o.text,
+                        FontId::proportional(10.5),
+                        c,
+                    );
                 }
             }
         }
         ObjKind::VLine => {
             let x = x_of(idx_of_time(o.times[0]));
-            styled_line(&clip, pos2(x, main.top()), pos2(x, main.bottom()), stroke, style);
+            styled_line(
+                &clip,
+                pos2(x, main.top()),
+                pos2(x, main.bottom()),
+                stroke,
+                style,
+            );
         }
         ObjKind::Trend => {
             let (a, mut b) = (pt(0), pt(1));
@@ -1438,8 +2023,20 @@ fn draw_object(
             for lvl in FIBO_LEVELS {
                 let price = p1 + (p0 - p1) * lvl;
                 let y = y_of(price);
-                styled_line(&clip, pos2(a.x.min(b.x), y), pos2(plot_right, y), Stroke::new(1.0_f32, c), LineStyle::Dot);
-                clip.text(pos2(a.x.min(b.x) + 2.0, y - 1.0), Align2::LEFT_BOTTOM, format!("{:.1}  {}", lvl * 100.0, fmt_price(price, digits)), FontId::proportional(10.5), c);
+                styled_line(
+                    &clip,
+                    pos2(a.x.min(b.x), y),
+                    pos2(plot_right, y),
+                    Stroke::new(1.0_f32, c),
+                    LineStyle::Dot,
+                );
+                clip.text(
+                    pos2(a.x.min(b.x) + 2.0, y - 1.0),
+                    Align2::LEFT_BOTTOM,
+                    format!("{:.1}  {}", lvl * 100.0, fmt_price(price, digits)),
+                    FontId::proportional(10.5),
+                    c,
+                );
             }
             styled_line(&clip, a, b, Stroke::new(1.0_f32, c), LineStyle::Dash);
         }
@@ -1448,13 +2045,29 @@ fn draw_object(
         }
         ObjKind::ArrowUp | ObjKind::ArrowBuy => {
             let q = pt(0);
-            let col = if o.kind == ObjKind::ArrowBuy { Color32::from_rgb(30, 144, 255) } else { c };
-            clip.add(Shape::convex_polygon(vec![q, q + vec2(-5.0, 9.0), q + vec2(5.0, 9.0)], col, Stroke::NONE));
+            let col = if o.kind == ObjKind::ArrowBuy {
+                Color32::from_rgb(30, 144, 255)
+            } else {
+                c
+            };
+            clip.add(Shape::convex_polygon(
+                vec![q, q + vec2(-5.0, 9.0), q + vec2(5.0, 9.0)],
+                col,
+                Stroke::NONE,
+            ));
         }
         ObjKind::ArrowDown | ObjKind::ArrowSell => {
             let q = pt(0);
-            let col = if o.kind == ObjKind::ArrowSell { Color32::from_rgb(255, 60, 60) } else { c };
-            clip.add(Shape::convex_polygon(vec![q, q + vec2(5.0, -9.0), q + vec2(-5.0, -9.0)], col, Stroke::NONE));
+            let col = if o.kind == ObjKind::ArrowSell {
+                Color32::from_rgb(255, 60, 60)
+            } else {
+                c
+            };
+            clip.add(Shape::convex_polygon(
+                vec![q, q + vec2(5.0, -9.0), q + vec2(-5.0, -9.0)],
+                col,
+                Stroke::NONE,
+            ));
         }
         ObjKind::Label | ObjKind::Button | ObjKind::RectLabel => {
             let (x, y) = (o.xdist as f32, o.ydist as f32);

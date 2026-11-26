@@ -134,7 +134,10 @@ impl FileH {
         let bytes: Vec<u8> = if self.is_bin() {
             self.bin.clone()
         } else if self.flags & FILE_ANSI != 0 {
-            self.text.iter().map(|&c| if (c as u32) < 256 { c as u8 } else { b'?' }).collect()
+            self.text
+                .iter()
+                .map(|&c| if (c as u32) < 256 { c as u8 } else { b'?' })
+                .collect()
         } else {
             let mut b = vec![0xFF, 0xFE];
             let s: String = self.text.iter().collect();
@@ -184,14 +187,26 @@ pub(super) fn out_params(name: &str, argc: usize) -> Option<&'static [usize]> {
 impl Instance {
     /// Functions with reference results: returns the function result and the values for
     /// the reference arguments (in the order `out_params` lists them).
-    pub(super) fn call_out(&mut self, name: &str, a: &[Value], host: &mut dyn Host) -> R<(Value, Vec<(usize, Value)>)> {
+    pub(super) fn call_out(
+        &mut self,
+        name: &str,
+        a: &[Value],
+        host: &mut dyn Host,
+    ) -> R<(Value, Vec<(usize, Value)>)> {
         Ok(match name {
             "OrderCalcProfit" => {
                 let typ = ai(a, 0, 0);
                 let sym = as_(a, 1);
                 match host.quote(&sym) {
                     Some(q) => {
-                        let p = crate::account::profit_usd(&q.spec, typ % 2 == 0, af(a, 2, 0.0), af(a, 3, 0.0), af(a, 4, 0.0), q.bid);
+                        let p = crate::account::profit_usd(
+                            &q.spec,
+                            typ % 2 == 0,
+                            af(a, 2, 0.0),
+                            af(a, 3, 0.0),
+                            af(a, 4, 0.0),
+                            q.bid,
+                        );
                         (Value::Bool(true), vec![(0, Value::Double(p))])
                     }
                     None => (Value::Bool(false), vec![(0, Value::Double(0.0))]),
@@ -201,7 +216,12 @@ impl Instance {
                 let sym = as_(a, 1);
                 match host.quote(&sym) {
                     Some(q) => {
-                        let m = crate::account::margin_usd(&q.spec, af(a, 2, 0.0), af(a, 3, 0.0), host.account().leverage);
+                        let m = crate::account::margin_usd(
+                            &q.spec,
+                            af(a, 2, 0.0),
+                            af(a, 3, 0.0),
+                            host.account().leverage,
+                        );
                         (Value::Bool(true), vec![(0, Value::Double(m))])
                     }
                     None => (Value::Bool(false), vec![(0, Value::Double(0.0))]),
@@ -213,7 +233,10 @@ impl Instance {
             }
             "SymbolInfoSessionTrade" | "SymbolInfoSessionQuote" => {
                 if ai(a, 2, 0) == 0 {
-                    (Value::Bool(true), vec![(0, Value::Int(0)), (1, Value::Int(86400))])
+                    (
+                        Value::Bool(true),
+                        vec![(0, Value::Int(0)), (1, Value::Int(86400))],
+                    )
                 } else {
                     (Value::Bool(false), vec![])
                 }
@@ -226,9 +249,18 @@ impl Instance {
                 (t, vec![(0, st)])
             }
             "IndicatorParameters" => (Value::Int(-1), vec![]),
-            "SymbolInfoMarginRate" => (Value::Bool(true), vec![(0, Value::Double(1.0)), (1, Value::Double(1.0))]),
+            "SymbolInfoMarginRate" => (
+                Value::Bool(true),
+                vec![(0, Value::Double(1.0)), (1, Value::Double(1.0))],
+            ),
             // text metrics approximated for a 10 px font
-            "TextGetSize" => (Value::Bool(true), vec![(0, Value::Int(as_(a, 0).chars().count() as i64 * 7)), (1, Value::Int(14))]),
+            "TextGetSize" => (
+                Value::Bool(true),
+                vec![
+                    (0, Value::Int(as_(a, 0).chars().count() as i64 * 7)),
+                    (1, Value::Int(14)),
+                ],
+            ),
             // getter overloads `F(..., &value)`: call the plain form and return its value
             _ => {
                 let v = self.call_builtin_values(name, &a[..a.len() - 1], host)?;
@@ -246,7 +278,11 @@ impl Instance {
         if n.is_empty() || n.starts_with('/') || n.contains("..") || n.contains(':') {
             return None;
         }
-        let root = if flags & FILE_COMMON != 0 { host.common_files_dir() } else { host.files_dir() };
+        let root = if flags & FILE_COMMON != 0 {
+            host.common_files_dir()
+        } else {
+            host.files_dir()
+        };
         Some(root.join(n))
     }
 
@@ -259,7 +295,12 @@ impl Instance {
     }
 
     /// Extra built-ins; `None` when the name is not one of them.
-    pub(super) fn call_extra(&mut self, name: &str, a: &[Value], host: &mut dyn Host) -> R<Option<Value>> {
+    pub(super) fn call_extra(
+        &mut self,
+        name: &str,
+        a: &[Value],
+        host: &mut dyn Host,
+    ) -> R<Option<Value>> {
         let v = match name {
             "printf" => self.call_builtin_values("PrintFormat", a, host)?,
             "GetTickCount64" => self.call_builtin_values("GetTickCount", a, host)?,
@@ -295,10 +336,22 @@ impl Instance {
                 } else if utf8 {
                     s.bytes().map(|b| b as i64).collect()
                 } else {
-                    s.chars().map(|c| if (c as u32) < 256 { c as i64 } else { '?' as i64 }).collect()
+                    s.chars()
+                        .map(|c| {
+                            if (c as u32) < 256 {
+                                c as i64
+                            } else {
+                                '?' as i64
+                            }
+                        })
+                        .collect()
                 };
                 codes.push(0);
-                let n = if count < 0 { codes.len() } else { (count as usize).min(codes.len()) };
+                let n = if count < 0 {
+                    codes.len()
+                } else {
+                    (count as usize).min(codes.len())
+                };
                 let mut ab = arr.borrow_mut();
                 if ab.data.len() < start + n {
                     ab.data.resize(start + n, Value::Int(0));
@@ -314,12 +367,24 @@ impl Instance {
                 let count = ai(a, 2, -1);
                 let utf8 = name == "CharArrayToString" && ai(a, 3, 0) == 65001;
                 let ab = arr.borrow();
-                let end = if count < 0 { ab.data.len() } else { (start + count as usize).min(ab.data.len()) };
-                let codes: Vec<i64> = ab.data.get(start..end).unwrap_or(&[]).iter().map(|v| v.as_i64()).take_while(|c| *c != 0).collect();
+                let end = if count < 0 {
+                    ab.data.len()
+                } else {
+                    (start + count as usize).min(ab.data.len())
+                };
+                let codes: Vec<i64> = ab
+                    .data
+                    .get(start..end)
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|v| v.as_i64())
+                    .take_while(|c| *c != 0)
+                    .collect();
                 let s = if name == "ShortArrayToString" {
                     String::from_utf16_lossy(&codes.iter().map(|c| *c as u16).collect::<Vec<_>>())
                 } else if utf8 {
-                    String::from_utf8_lossy(&codes.iter().map(|c| *c as u8).collect::<Vec<_>>()).to_string()
+                    String::from_utf8_lossy(&codes.iter().map(|c| *c as u8).collect::<Vec<_>>())
+                        .to_string()
                 } else {
                     codes.iter().map(|c| (*c as u8) as char).collect()
                 };
@@ -336,11 +401,22 @@ impl Instance {
                 let t = s.trim();
                 let parts: Vec<&str> = t.split(',').collect();
                 if parts.len() == 3 {
-                    let n: Vec<i64> = parts.iter().map(|p| p.trim().parse::<i64>().unwrap_or(0).clamp(0, 255)).collect();
+                    let n: Vec<i64> = parts
+                        .iter()
+                        .map(|p| p.trim().parse::<i64>().unwrap_or(0).clamp(0, 255))
+                        .collect();
                     Value::Int(n[0] | (n[1] << 8) | (n[2] << 16))
                 } else {
-                    let key = if t.starts_with("clr") { t.to_string() } else { format!("clr{}", t) };
-                    Value::Int(builtins::constant(&key).and_then(|c| c.as_i64()).unwrap_or(0))
+                    let key = if t.starts_with("clr") {
+                        t.to_string()
+                    } else {
+                        format!("clr{}", t)
+                    };
+                    Value::Int(
+                        builtins::constant(&key)
+                            .and_then(|c| c.as_i64())
+                            .unwrap_or(0),
+                    )
                 }
             }
             // ---------- arrays ----------
@@ -353,7 +429,11 @@ impl Instance {
                 if start >= len {
                     Value::Bool(false)
                 } else {
-                    let end = if count < 0 { len } else { (start + count as usize).min(len) };
+                    let end = if count < 0 {
+                        len
+                    } else {
+                        (start + count as usize).min(len)
+                    };
                     if ab.series {
                         let (s2, e2) = (len - end, len - start);
                         ab.data.drain(s2..e2);
@@ -371,7 +451,11 @@ impl Instance {
                 let count = ai(a, 4, -1);
                 let items: Vec<Value> = {
                     let sb = src.borrow();
-                    let end = if count < 0 { sb.data.len() } else { (src_start + count as usize).min(sb.data.len()) };
+                    let end = if count < 0 {
+                        sb.data.len()
+                    } else {
+                        (src_start + count as usize).min(sb.data.len())
+                    };
                     sb.data.get(src_start..end).unwrap_or(&[]).to_vec()
                 };
                 let mut db = dst.borrow_mut();
@@ -397,7 +481,10 @@ impl Instance {
                 for (p, q) in xb.data.iter().zip(yb.data.iter()) {
                     let c = match (p, q) {
                         (Value::Str(s1), Value::Str(s2)) => s1.cmp(s2),
-                        _ => p.as_f64().partial_cmp(&q.as_f64()).unwrap_or(std::cmp::Ordering::Equal),
+                        _ => p
+                            .as_f64()
+                            .partial_cmp(&q.as_f64())
+                            .unwrap_or(std::cmp::Ordering::Equal),
                     };
                     if c != std::cmp::Ordering::Equal {
                         r = if c == std::cmp::Ordering::Less { -1 } else { 1 };
@@ -420,12 +507,18 @@ impl Instance {
                     let idx = ab.data.partition_point(|v| v.as_f64() < x);
                     let best = if idx >= n {
                         n - 1
-                    } else if idx > 0 && (ab.data[idx].as_f64() - x).abs() > (x - ab.data[idx - 1].as_f64()).abs() {
+                    } else if idx > 0
+                        && (ab.data[idx].as_f64() - x).abs() > (x - ab.data[idx - 1].as_f64()).abs()
+                    {
                         idx - 1
                     } else {
                         idx
                     };
-                    Value::Int(if ab.series { (n - 1 - best) as i64 } else { best as i64 })
+                    Value::Int(if ab.series {
+                        (n - 1 - best) as i64
+                    } else {
+                        best as i64
+                    })
                 }
             }
             "ArrayPrint" => {
@@ -455,7 +548,13 @@ impl Instance {
                 let sym = self.sym_arg(a.first());
                 let tf = self.tf_arg(a.get(1));
                 let prop = ai(a, 2, 0);
-                let info = self.with_bars(host, &sym, tf, |b| (b.len() as i64, b.first().map(|x| x.time).unwrap_or(0), b.last().map(|x| x.time).unwrap_or(0)));
+                let info = self.with_bars(host, &sym, tf, |b| {
+                    (
+                        b.len() as i64,
+                        b.first().map(|x| x.time).unwrap_or(0),
+                        b.last().map(|x| x.time).unwrap_or(0),
+                    )
+                });
                 match info {
                     Some((n, first, last)) => Value::Int(match prop {
                         0 => n,
@@ -476,10 +575,17 @@ impl Instance {
                 // ticks are reconstructed from bar closes: one tick per bar
                 let sym = self.sym_arg(a.first());
                 let arr = self.arr_of(a.get(1).unwrap_or(&Value::Void))?;
-                let count = if name == "CopyTicks" { ai(a, 4, 2000).max(1) as usize } else { 100_000 };
+                let count = if name == "CopyTicks" {
+                    ai(a, 4, 2000).max(1) as usize
+                } else {
+                    100_000
+                };
                 let spec_point = host.quote(&sym).map(|q| q.spec.point()).unwrap_or(0.00001);
                 let tick_sym = self.prog.interner.get("MqlTick");
-                let bars: Vec<crate::market::Bar> = host.bars(&sym, Timeframe::M1).map(|b| b.to_vec()).unwrap_or_default();
+                let bars: Vec<crate::market::Bar> = host
+                    .bars(&sym, Timeframe::M1)
+                    .map(|b| b.to_vec())
+                    .unwrap_or_default();
                 let take = bars.len().saturating_sub(count);
                 let mut out = vec![];
                 for b in &bars[take..] {
@@ -488,7 +594,11 @@ impl Instance {
                         self.struct_set(&t, "time", Value::Int(b.time));
                         self.struct_set(&t, "time_msc", Value::Int(b.time * 1000));
                         self.struct_set(&t, "bid", Value::Double(b.close));
-                        self.struct_set(&t, "ask", Value::Double(b.close + b.spread as f64 * spec_point));
+                        self.struct_set(
+                            &t,
+                            "ask",
+                            Value::Double(b.close + b.spread as f64 * spec_point),
+                        );
                         self.struct_set(&t, "last", Value::Double(b.close));
                         self.struct_set(&t, "volume", Value::Int(b.tick_volume));
                         out.push(t);
@@ -518,7 +628,8 @@ impl Instance {
                 Value::Int(-1)
             }
             "CLContextFree" | "CLProgramFree" | "CLKernelFree" | "CLBufferFree" => Value::Void,
-            "CLBufferRead" | "CLBufferWrite" | "CLSetKernelArg" | "CLSetKernelArgMem" | "CLExecute" => Value::Bool(false),
+            "CLBufferRead" | "CLBufferWrite" | "CLSetKernelArg" | "CLSetKernelArgMem"
+            | "CLExecute" => Value::Bool(false),
             "CLGetInfoInteger" | "CLHandleType" => Value::Int(-1),
             "FileWriteStruct" | "FileReadStruct" => Value::Int(0),
             // ---------- terminal / chart ----------
@@ -532,15 +643,30 @@ impl Instance {
                 Value::Void
             }
             "TerminalInfoDouble" => Value::Double(0.0),
-            "ChartSetString" | "ChartSetDouble" | "ChartNavigate" | "ChartIndicatorAdd" | "ChartIndicatorDelete" | "ChartApplyTemplate"
-            | "ChartSaveTemplate" | "ChartScreenShot" | "ChartSetSymbolPeriod" | "EventChartCustom" | "ChartClose" => Value::Bool(true),
+            "ChartSetString"
+            | "ChartSetDouble"
+            | "ChartNavigate"
+            | "ChartIndicatorAdd"
+            | "ChartIndicatorDelete"
+            | "ChartApplyTemplate"
+            | "ChartSaveTemplate"
+            | "ChartScreenShot"
+            | "ChartSetSymbolPeriod"
+            | "EventChartCustom"
+            | "ChartClose" => Value::Bool(true),
             "ChartGetString" => Value::str(""),
             "ChartWindowFind" | "ChartIndicatorsTotal" | "WindowsTotal" => Value::Int(0),
             "ChartIndicatorName" => Value::str(""),
             "ChartIndicatorGet" => Value::Int(-1),
-            "ChartOpen" | "ChartFirst" | "ChartXOnDropped" | "ChartYOnDropped" | "ChartWindowOnDropped" => Value::Int(0),
+            "ChartOpen"
+            | "ChartFirst"
+            | "ChartXOnDropped"
+            | "ChartYOnDropped"
+            | "ChartWindowOnDropped" => Value::Int(0),
             "ChartTimeOnDropped" => Value::Int(host.now()),
-            "ChartPriceOnDropped" => Value::Double(host.quote(&self.symbol).map(|q| q.bid).unwrap_or(0.0)),
+            "ChartPriceOnDropped" => {
+                Value::Double(host.quote(&self.symbol).map(|q| q.bid).unwrap_or(0.0))
+            }
             "FileFindFirst" => Value::Int(-1),
             "FileFindNext" => Value::Bool(false),
             "FileFindClose" => Value::Void,
@@ -554,18 +680,43 @@ impl Instance {
             }
             // ---------- history ----------
             "HistorySelectByPosition" | "HistoryOrderSelect" => Value::Bool(true),
-            "HistoryDealSelect" => Value::Bool(host.account().deals.iter().any(|d| d.ticket as i64 == ai(a, 0, 0))),
+            "HistoryDealSelect" => Value::Bool(
+                host.account()
+                    .deals
+                    .iter()
+                    .any(|d| d.ticket as i64 == ai(a, 0, 0)),
+            ),
             "HistoryOrderGetTicket" => {
-                let orders: Vec<i64> = host.account().deals.iter().filter(|d| d.order != 0).map(|d| d.order as i64).collect();
-                Value::Int(orders.get(ai(a, 0, 0).max(0) as usize).copied().unwrap_or(0))
+                let orders: Vec<i64> = host
+                    .account()
+                    .deals
+                    .iter()
+                    .filter(|d| d.order != 0)
+                    .map(|d| d.order as i64)
+                    .collect();
+                Value::Int(
+                    orders
+                        .get(ai(a, 0, 0).max(0) as usize)
+                        .copied()
+                        .unwrap_or(0),
+                )
             }
             "HistoryOrderGetDouble" | "HistoryOrderGetInteger" | "HistoryOrderGetString" => {
                 let ticket = ai(a, 0, 0) as u64;
-                let deal = host.account().deals.iter().find(|d| d.order == ticket).map(|d| d.ticket as i64);
+                let deal = host
+                    .account()
+                    .deals
+                    .iter()
+                    .find(|d| d.order == ticket)
+                    .map(|d| d.ticket as i64);
                 let dname = name.replace("HistoryOrder", "HistoryDeal");
                 // order properties share numbers with the matching deal properties where it matters
                 match deal {
-                    Some(t) => self.call_builtin_values(&dname, &[Value::Int(t), a.get(1).cloned().unwrap_or(Value::Int(0))], host)?,
+                    Some(t) => self.call_builtin_values(
+                        &dname,
+                        &[Value::Int(t), a.get(1).cloned().unwrap_or(Value::Int(0))],
+                        host,
+                    )?,
                     None => match name {
                         "HistoryOrderGetString" => Value::str(""),
                         "HistoryOrderGetDouble" => Value::Double(0.0),
@@ -574,12 +725,20 @@ impl Instance {
                 }
             }
             // ---------- global variables ----------
-            "GlobalVariableTime" => Value::Int(if host.global_vars().contains_key(&as_(a, 0)) { host.now() } else { 0 }),
+            "GlobalVariableTime" => Value::Int(if host.global_vars().contains_key(&as_(a, 0)) {
+                host.now()
+            } else {
+                0
+            }),
             "GlobalVariablesTotal" => Value::Int(host.global_vars().len() as i64),
             "GlobalVariableName" => {
                 let mut keys: Vec<String> = host.global_vars().keys().cloned().collect();
                 keys.sort();
-                Value::str(keys.get(ai(a, 0, 0).max(0) as usize).map(|s| s.as_str()).unwrap_or(""))
+                Value::str(
+                    keys.get(ai(a, 0, 0).max(0) as usize)
+                        .map(|s| s.as_str())
+                        .unwrap_or(""),
+                )
             }
             "GlobalVariablesDeleteAll" => {
                 let prefix = as_(a, 0);
@@ -614,8 +773,16 @@ impl Instance {
                 let kind = indicators_ext::by_function(n).unwrap();
                 let symbol = self.sym_arg(a.first());
                 let tf = self.tf_arg(a.get(1));
-                let params = ExtParams { i: a.iter().skip(2).map(|v| v.as_i64()).collect(), f: a.iter().skip(2).map(|v| v.as_f64()).collect() };
-                self.add_handle(Handle::Ext { kind, params, symbol, tf })
+                let params = ExtParams {
+                    i: a.iter().skip(2).map(|v| v.as_i64()).collect(),
+                    f: a.iter().skip(2).map(|v| v.as_f64()).collect(),
+                };
+                self.add_handle(Handle::Ext {
+                    kind,
+                    params,
+                    symbol,
+                    tf,
+                })
             }
             // ---------- files ----------
             "FileOpen" => {
@@ -645,8 +812,21 @@ impl Instance {
                     self.last_error = 5004;
                     return Ok(Some(Value::Int(-1)));
                 }
-                let raw = if flags & FILE_READ != 0 && exists { std::fs::read(&path).unwrap_or_default() } else { vec![] };
-                let mut fh = FileH { path, flags, delim, text: vec![], bin: vec![], pos: 0, dirty: flags & FILE_READ == 0 || !exists, line_end: false };
+                let raw = if flags & FILE_READ != 0 && exists {
+                    std::fs::read(&path).unwrap_or_default()
+                } else {
+                    vec![]
+                };
+                let mut fh = FileH {
+                    path,
+                    flags,
+                    delim,
+                    text: vec![],
+                    bin: vec![],
+                    pos: 0,
+                    dirty: flags & FILE_READ == 0 || !exists,
+                    line_end: false,
+                };
                 if flags & FILE_BIN != 0 {
                     fh.bin = raw;
                 } else {
@@ -671,9 +851,17 @@ impl Instance {
             "FileWrite" => {
                 let f = self.file(ai(a, 0, -1))?;
                 let parts: Vec<String> = a.iter().skip(1).map(|v| v.to_text()).collect();
-                let sep = if f.is_csv() { f.delim.to_string() } else { String::new() };
+                let sep = if f.is_csv() {
+                    f.delim.to_string()
+                } else {
+                    String::new()
+                };
                 let line = parts.join(&sep) + "\r\n";
-                let n = if f.is_bin() { f.write_bytes(line.as_bytes()) } else { f.write_text(&line) };
+                let n = if f.is_bin() {
+                    f.write_bytes(line.as_bytes())
+                } else {
+                    f.write_text(&line)
+                };
                 Value::Int(n as i64)
             }
             "FileWriteString" => {
@@ -707,7 +895,10 @@ impl Instance {
                         Value::str(&b.iter().map(|&c| c as char).collect::<String>())
                     } else {
                         let b = f.read_bytes(n * 2);
-                        let u: Vec<u16> = b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+                        let u: Vec<u16> = b
+                            .chunks_exact(2)
+                            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                            .collect();
                         Value::str(&String::from_utf16_lossy(&u))
                     }
                 } else {
@@ -720,7 +911,10 @@ impl Instance {
                 let t = s.trim();
                 match name {
                     "FileReadNumber" => Value::Double(t.parse().unwrap_or(0.0)),
-                    "FileReadBool" => Value::Bool(t.eq_ignore_ascii_case("true") || t.parse::<f64>().map(|x| x != 0.0).unwrap_or(false)),
+                    "FileReadBool" => Value::Bool(
+                        t.eq_ignore_ascii_case("true")
+                            || t.parse::<f64>().map(|x| x != 0.0).unwrap_or(false),
+                    ),
                     _ => Value::Int(crate::mql::lexer::parse_datetime(t).unwrap_or(0)),
                 }
             }
@@ -742,15 +936,27 @@ impl Instance {
                 match name {
                     "FileReadDouble" => {
                         let b = f.read_bytes(8);
-                        Value::Double(if b.len() == 8 { f64::from_le_bytes(b.try_into().unwrap()) } else { 0.0 })
+                        Value::Double(if b.len() == 8 {
+                            f64::from_le_bytes(b.try_into().unwrap())
+                        } else {
+                            0.0
+                        })
                     }
                     "FileReadFloat" => {
                         let b = f.read_bytes(4);
-                        Value::Double(if b.len() == 4 { f32::from_le_bytes(b.try_into().unwrap()) as f64 } else { 0.0 })
+                        Value::Double(if b.len() == 4 {
+                            f32::from_le_bytes(b.try_into().unwrap()) as f64
+                        } else {
+                            0.0
+                        })
                     }
                     "FileReadLong" => {
                         let b = f.read_bytes(8);
-                        Value::Int(if b.len() == 8 { i64::from_le_bytes(b.try_into().unwrap()) } else { 0 })
+                        Value::Int(if b.len() == 8 {
+                            i64::from_le_bytes(b.try_into().unwrap())
+                        } else {
+                            0
+                        })
                     }
                     _ => {
                         let size = ai(a, 1, 4).clamp(1, 8) as usize;
@@ -777,7 +983,11 @@ impl Instance {
                 let f = self.file(h)?;
                 if name == "FileWriteArray" {
                     let ab = arr.borrow();
-                    let end = if count < 0 { ab.data.len() } else { (start + count as usize).min(ab.data.len()) };
+                    let end = if count < 0 {
+                        ab.data.len()
+                    } else {
+                        (start + count as usize).min(ab.data.len())
+                    };
                     let mut n = 0;
                     for v in ab.data.get(start..end).unwrap_or(&[]) {
                         if size == 8 {
@@ -790,7 +1000,11 @@ impl Instance {
                     Value::Int(n)
                 } else {
                     let avail = (f.bin.len() - f.pos.min(f.bin.len())) / size;
-                    let n = if count < 0 { avail } else { (count as usize).min(avail) };
+                    let n = if count < 0 {
+                        avail
+                    } else {
+                        (count as usize).min(avail)
+                    };
                     let mut vals = vec![];
                     for _ in 0..n {
                         let b = f.read_bytes(size);
@@ -802,7 +1016,11 @@ impl Instance {
                     }
                     let mut ab = arr.borrow_mut();
                     if ab.data.len() < start + n {
-                        let d = if size == 8 { Value::Double(0.0) } else { Value::Int(0) };
+                        let d = if size == 8 {
+                            Value::Double(0.0)
+                        } else {
+                            Value::Int(0)
+                        };
                         ab.data.resize(start + n, d);
                     }
                     for (i, v) in vals.into_iter().enumerate() {
@@ -870,8 +1088,14 @@ impl Instance {
                     }
                 }
             }
-            "FileIsExist" => Value::Bool(self.file_path(host, &as_(a, 0), ai(a, 1, 0)).is_some_and(|p| p.is_file())),
-            "FileDelete" => Value::Bool(self.file_path(host, &as_(a, 0), ai(a, 1, 0)).is_some_and(|p| std::fs::remove_file(p).is_ok())),
+            "FileIsExist" => Value::Bool(
+                self.file_path(host, &as_(a, 0), ai(a, 1, 0))
+                    .is_some_and(|p| p.is_file()),
+            ),
+            "FileDelete" => Value::Bool(
+                self.file_path(host, &as_(a, 0), ai(a, 1, 0))
+                    .is_some_and(|p| std::fs::remove_file(p).is_ok()),
+            ),
             "FileMove" | "FileCopy" => {
                 let src = self.file_path(host, &as_(a, 0), ai(a, 1, 0));
                 let dst = self.file_path(host, &as_(a, 2), ai(a, 3, 0));
@@ -880,25 +1104,41 @@ impl Instance {
                         if let Some(dir) = d.parent() {
                             let _ = std::fs::create_dir_all(dir);
                         }
-                        let ok = if name == "FileMove" { std::fs::rename(&s, &d).is_ok() } else { std::fs::copy(&s, &d).is_ok() };
+                        let ok = if name == "FileMove" {
+                            std::fs::rename(&s, &d).is_ok()
+                        } else {
+                            std::fs::copy(&s, &d).is_ok()
+                        };
                         Value::Bool(ok)
                     }
                     _ => Value::Bool(false),
                 }
             }
-            "FolderCreate" => Value::Bool(self.file_path(host, &as_(a, 0), ai(a, 1, 0)).is_some_and(|p| std::fs::create_dir_all(p).is_ok())),
-            "FolderDelete" => Value::Bool(self.file_path(host, &as_(a, 0), ai(a, 1, 0)).is_some_and(|p| std::fs::remove_dir(p).is_ok())),
+            "FolderCreate" => Value::Bool(
+                self.file_path(host, &as_(a, 0), ai(a, 1, 0))
+                    .is_some_and(|p| std::fs::create_dir_all(p).is_ok()),
+            ),
+            "FolderDelete" => Value::Bool(
+                self.file_path(host, &as_(a, 0), ai(a, 1, 0))
+                    .is_some_and(|p| std::fs::remove_dir(p).is_ok()),
+            ),
             "FolderClean" => {
-                let ok = self.file_path(host, &as_(a, 0), ai(a, 1, 0)).is_some_and(|p| {
-                    std::fs::read_dir(&p)
-                        .map(|rd| {
-                            for e in rd.flatten() {
-                                let q = e.path();
-                                let _ = if q.is_dir() { std::fs::remove_dir_all(q) } else { std::fs::remove_file(q) };
-                            }
-                        })
-                        .is_ok()
-                });
+                let ok = self
+                    .file_path(host, &as_(a, 0), ai(a, 1, 0))
+                    .is_some_and(|p| {
+                        std::fs::read_dir(&p)
+                            .map(|rd| {
+                                for e in rd.flatten() {
+                                    let q = e.path();
+                                    let _ = if q.is_dir() {
+                                        std::fs::remove_dir_all(q)
+                                    } else {
+                                        std::fs::remove_file(q)
+                                    };
+                                }
+                            })
+                            .is_ok()
+                    });
                 Value::Bool(ok)
             }
             _ => return Ok(None),
@@ -966,7 +1206,10 @@ impl Instance {
             38 => "iWPR",
             _ => return Ok(Value::Int(-1)),
         };
-        let mut args = vec![a.first().cloned().unwrap_or(Value::str("")), a.get(1).cloned().unwrap_or(Value::Int(0))];
+        let mut args = vec![
+            a.first().cloned().unwrap_or(Value::str("")),
+            a.get(1).cloned().unwrap_or(Value::Int(0)),
+        ];
         args.extend(params);
         self.call_builtin_values(fname, &args, host)
     }
@@ -984,8 +1227,18 @@ pub fn period_seconds(tf: i64) -> i64 {
 }
 
 fn tester_stat(acc: &crate::account::Account, stat: i64) -> f64 {
-    let outs: Vec<f64> = acc.deals.iter().filter(|d| d.entry == "out").map(|d| d.profit).collect();
-    let deposits: f64 = acc.deals.iter().filter(|d| d.kind == "balance").map(|d| d.profit).sum();
+    let outs: Vec<f64> = acc
+        .deals
+        .iter()
+        .filter(|d| d.entry == "out")
+        .map(|d| d.profit)
+        .collect();
+    let deposits: f64 = acc
+        .deals
+        .iter()
+        .filter(|d| d.kind == "balance")
+        .map(|d| d.profit)
+        .sum();
     let profit: f64 = outs.iter().sum();
     let gp: f64 = outs.iter().filter(|p| **p > 0.0).sum();
     let gl: f64 = outs.iter().filter(|p| **p < 0.0).sum();

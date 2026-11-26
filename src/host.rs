@@ -25,7 +25,11 @@ impl QuoteSource for Market {
     fn quote(&self, symbol: &str) -> Option<Quote> {
         let i = self.symbol_index(symbol)?;
         let s = &self.symbols[i];
-        Some(Quote { spec: s.spec.clone(), bid: s.bid, ask: s.ask })
+        Some(Quote {
+            spec: s.spec.clone(),
+            bid: s.bid,
+            ask: s.ask,
+        })
     }
 }
 
@@ -39,11 +43,19 @@ pub fn load_program(cache: &mut ProgramCache, path: &Path) -> Result<Rc<Program>
             return Ok(p.clone());
         }
     }
-    if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ex5")) {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("ex5"))
+    {
         return Err("compiled .ex5 files are encrypted and can't be run here; use the program's .mq5 source".into());
     }
     let src = storage::read_source(path).map_err(|e| format!("cannot open file: {}", e))?;
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("program.mq5").to_string();
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("program.mq5")
+        .to_string();
     let loader = storage::include_loader(path.parent().map(|p| p.to_path_buf()));
     match compile(&name, &src, &loader) {
         Ok(p) => {
@@ -51,14 +63,21 @@ pub fn load_program(cache: &mut ProgramCache, path: &Path) -> Result<Rc<Program>
             cache.insert(path.to_path_buf(), (mtime, p.clone()));
             Ok(p)
         }
-        Err(errs) => Err(errs.iter().take(5).map(|e| format!("({},{}) {}", e.line, e.col, e.msg)).collect::<Vec<_>>().join("; ")),
+        Err(errs) => Err(errs
+            .iter()
+            .take(5)
+            .map(|e| format!("({},{}) {}", e.line, e.col, e.msg))
+            .collect::<Vec<_>>()
+            .join("; ")),
     }
 }
 
 pub fn indicator_path(name: &str) -> PathBuf {
     let clean = name.replace('\\', "/");
     let clean = clean.trim_end_matches(".ex5").trim_end_matches(".mq5");
-    storage::mql_dir().join("Indicators").join(format!("{}.mq5", clean))
+    storage::mql_dir()
+        .join("Indicators")
+        .join(format!("{}.mq5", clean))
 }
 
 pub struct LiveHost<'a> {
@@ -79,23 +98,68 @@ impl<'a> LiveHost<'a> {
     pub fn journal_lines(&mut self, lines: Vec<String>) {
         let now = unix_now();
         for l in lines {
-            self.journal.push(LogLine { time: now, source: "Trades".into(), text: l, error: false });
+            self.journal.push(LogLine {
+                time: now,
+                source: "Trades".into(),
+                text: l,
+                error: false,
+            });
         }
     }
 }
 
-pub fn apply_trade(market: &Market, account: &mut Account, op: TradeOp, log: &mut Vec<String>) -> TradeResult {
+pub fn apply_trade(
+    market: &Market,
+    account: &mut Account,
+    op: TradeOp,
+    log: &mut Vec<String>,
+) -> TradeResult {
     let t = market.now;
     match op {
-        TradeOp::Market { symbol, buy, volume, sl, tp, magic, comment } => account.market_order(market, &symbol, buy, volume, sl, tp, magic, &comment, t, log),
-        TradeOp::Close { ticket, volume } => account.close_position(market, ticket, volume, t, "", log),
+        TradeOp::Market {
+            symbol,
+            buy,
+            volume,
+            sl,
+            tp,
+            magic,
+            comment,
+        } => account.market_order(
+            market, &symbol, buy, volume, sl, tp, magic, &comment, t, log,
+        ),
+        TradeOp::Close { ticket, volume } => {
+            account.close_position(market, ticket, volume, t, "", log)
+        }
         TradeOp::Modify { ticket, sl, tp } => account.modify_position(market, ticket, sl, tp, log),
-        TradeOp::Pending { symbol, typ, volume, price, sl, tp, magic, comment } => match OrderType::from_i64(typ) {
-            Some(ot) => account.pending_order(market, &symbol, ot, volume, price, sl, tp, magic, &comment, t, log),
-            None => TradeResult { retcode: crate::account::RET_INVALID, order: 0, deal: 0, price: 0.0, volume: 0.0, comment: "invalid order type".into() },
+        TradeOp::Pending {
+            symbol,
+            typ,
+            volume,
+            price,
+            sl,
+            tp,
+            magic,
+            comment,
+        } => match OrderType::from_i64(typ) {
+            Some(ot) => account.pending_order(
+                market, &symbol, ot, volume, price, sl, tp, magic, &comment, t, log,
+            ),
+            None => TradeResult {
+                retcode: crate::account::RET_INVALID,
+                order: 0,
+                deal: 0,
+                price: 0.0,
+                volume: 0.0,
+                comment: "invalid order type".into(),
+            },
         },
         TradeOp::Delete { ticket } => account.delete_order(ticket, log),
-        TradeOp::ModifyOrder { ticket, price, sl, tp } => account.modify_order(ticket, price, sl, tp),
+        TradeOp::ModifyOrder {
+            ticket,
+            price,
+            sl,
+            tp,
+        } => account.modify_order(ticket, price, sl, tp),
     }
 }
 
@@ -123,11 +187,26 @@ impl<'a> Host for LiveHost<'a> {
         r
     }
     fn print(&mut self, msg: &str) {
-        self.experts.push(LogLine { time: unix_now(), source: self.source.clone(), text: msg.to_string(), error: false });
+        self.experts.push(LogLine {
+            time: unix_now(),
+            source: self.source.clone(),
+            text: msg.to_string(),
+            error: false,
+        });
     }
     fn alert(&mut self, msg: &str) {
-        self.alerts.push(LogLine { time: unix_now(), source: self.source.clone(), text: msg.to_string(), error: false });
-        self.experts.push(LogLine { time: unix_now(), source: self.source.clone(), text: format!("Alert: {}", msg), error: false });
+        self.alerts.push(LogLine {
+            time: unix_now(),
+            source: self.source.clone(),
+            text: msg.to_string(),
+            error: false,
+        });
+        self.experts.push(LogLine {
+            time: unix_now(),
+            source: self.source.clone(),
+            text: format!("Alert: {}", msg),
+            error: false,
+        });
     }
     fn set_comment(&mut self, text: &str) {
         *self.comment = text.to_string();
@@ -145,7 +224,11 @@ impl<'a> Host for LiveHost<'a> {
         false
     }
     fn symbol_names(&self) -> Vec<String> {
-        self.market.symbols.iter().map(|s| s.spec.name.to_string()).collect()
+        self.market
+            .symbols
+            .iter()
+            .map(|s| s.spec.name.to_string())
+            .collect()
     }
     fn global_vars(&mut self) -> &mut HashMap<String, f64> {
         self.gv

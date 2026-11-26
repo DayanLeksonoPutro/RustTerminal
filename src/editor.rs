@@ -31,14 +31,60 @@ pub struct Editor {
 }
 
 const KEYWORDS: &[&str] = &[
-    "if", "else", "for", "while", "do", "return", "break", "continue", "switch", "case", "default", "input", "sinput", "const", "static",
-    "struct", "enum", "class", "true", "false", "NULL", "extern", "public", "private", "protected", "void", "int", "uint", "long", "ulong",
-    "short", "ushort", "char", "uchar", "double", "float", "bool", "string", "datetime", "color", "group",
+    "if",
+    "else",
+    "for",
+    "while",
+    "do",
+    "return",
+    "break",
+    "continue",
+    "switch",
+    "case",
+    "default",
+    "input",
+    "sinput",
+    "const",
+    "static",
+    "struct",
+    "enum",
+    "class",
+    "true",
+    "false",
+    "NULL",
+    "extern",
+    "public",
+    "private",
+    "protected",
+    "void",
+    "int",
+    "uint",
+    "long",
+    "ulong",
+    "short",
+    "ushort",
+    "char",
+    "uchar",
+    "double",
+    "float",
+    "bool",
+    "string",
+    "datetime",
+    "color",
+    "group",
 ];
 
 impl Default for Editor {
     fn default() -> Self {
-        Editor { open: false, files: vec![], current: 0, messages: vec![], new_dialog: None, tree: vec![], tree_dirty: true }
+        Editor {
+            open: false,
+            files: vec![],
+            current: 0,
+            messages: vec![],
+            new_dialog: None,
+            tree: vec![],
+            tree_dirty: true,
+        }
     }
 }
 
@@ -49,14 +95,30 @@ impl Editor {
             self.open = true;
             return;
         }
-        if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ex5")) {
-            self.messages = vec![(false, ".ex5 files are compiled and encrypted; open the .mq5 source instead".into())];
+        if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("ex5"))
+        {
+            self.messages = vec![(
+                false,
+                ".ex5 files are compiled and encrypted; open the .mq5 source instead".into(),
+            )];
             self.open = true;
             return;
         }
         let text = crate::storage::read_source(&path).unwrap_or_default();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("untitled.mq5").to_string();
-        self.files.push(EditorFile { path, name, text, dirty: false });
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("untitled.mq5")
+            .to_string();
+        self.files.push(EditorFile {
+            path,
+            name,
+            text,
+            dirty: false,
+        });
         self.current = self.files.len() - 1;
         self.open = true;
     }
@@ -98,15 +160,26 @@ impl Editor {
                         p.funcs.values().map(|v| v.len()).sum::<usize>()
                     ),
                 ));
-                self.messages.push((true, format!("0 errors, {} warnings, {} ms elapsed", p.warnings.len(), start.elapsed().as_millis())));
+                self.messages.push((
+                    true,
+                    format!(
+                        "0 errors, {} warnings, {} ms elapsed",
+                        p.warnings.len(),
+                        start.elapsed().as_millis()
+                    ),
+                ));
                 Some(f.path.clone())
             }
             Err(errs) => {
                 let n = errs.len();
                 for e in errs {
-                    self.messages.push((false, format!("{} ({},{}): {}", f.name, e.line, e.col, e.msg)));
+                    self.messages.push((
+                        false,
+                        format!("{} ({},{}): {}", f.name, e.line, e.col, e.msg),
+                    ));
                 }
-                self.messages.push((false, format!("{} errors, 0 warnings", n)));
+                self.messages
+                    .push((false, format!("{} errors, 0 warnings", n)));
                 None
             }
         }
@@ -125,7 +198,12 @@ impl Editor {
         }
         let mut event = None;
         let mut open = self.open;
-        let (f7, ctrl_s) = ctx.input(|i| (i.key_pressed(egui::Key::F7), i.modifiers.command && i.key_pressed(egui::Key::S)));
+        let (f7, ctrl_s) = ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::F7),
+                i.modifiers.command && i.key_pressed(egui::Key::S),
+            )
+        });
         egui::Window::new("MetaEditor — code editor")
             .open(&mut open)
             .default_size([980.0, 640.0])
@@ -258,13 +336,20 @@ impl Editor {
         if let Some((kind, name)) = &mut self.new_dialog {
             let mut keep = true;
             let label = ["Expert Advisor", "Custom Indicator", "Script"][*kind];
-            egui::Window::new(format!("New {}", label)).collapsible(false).resizable(false).open(&mut keep).show(ctx, |ui| {
-                ui.label("Name:");
-                ui.text_edit_singleline(name);
-                if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("Create")).clicked() {
-                    create = Some((*kind, name.trim().to_string()));
-                }
-            });
+            egui::Window::new(format!("New {}", label))
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut keep)
+                .show(ctx, |ui| {
+                    ui.label("Name:");
+                    ui.text_edit_singleline(name);
+                    if ui
+                        .add_enabled(!name.trim().is_empty(), egui::Button::new("Create"))
+                        .clicked()
+                    {
+                        create = Some((*kind, name.trim().to_string()));
+                    }
+                });
             if !keep {
                 self.new_dialog = None;
             }
@@ -275,7 +360,11 @@ impl Editor {
                 1 => ("Indicators", crate::samples::TEMPLATE_INDICATOR),
                 _ => ("Scripts", crate::samples::TEMPLATE_SCRIPT),
             };
-            let file = if name.to_lowercase().ends_with(".mq5") { name.clone() } else { format!("{}.mq5", name) };
+            let file = if name.to_lowercase().ends_with(".mq5") {
+                name.clone()
+            } else {
+                format!("{}.mq5", name)
+            };
             let path = storage::mql_dir().join(folder).join(file);
             if !path.exists() {
                 let _ = std::fs::write(&path, tpl);
@@ -297,9 +386,21 @@ fn list_with_include(folder: &str) -> Vec<storage::ProgramFile> {
     if let Ok(rd) = std::fs::read_dir(&root) {
         for e in rd.flatten() {
             let p = e.path();
-            if p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("mqh")) {
-                let rel = p.file_name().and_then(|x| x.to_str()).unwrap_or("").to_string();
-                out.push(storage::ProgramFile { name: rel.clone(), rel, path: p.clone(), ex5: false });
+            if p.extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("mqh"))
+            {
+                let rel = p
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                out.push(storage::ProgramFile {
+                    name: rel.clone(),
+                    rel,
+                    path: p.clone(),
+                    ex5: false,
+                });
             }
         }
     }
@@ -310,7 +411,11 @@ fn list_with_include(folder: &str) -> Vec<storage::ProgramFile> {
 pub fn highlight(text: &str) -> LayoutJob {
     let mut job = LayoutJob::default();
     let font = FontId::monospace(13.0);
-    let fmt = |c: Color32| TextFormat { font_id: font.clone(), color: c, ..Default::default() };
+    let fmt = |c: Color32| TextFormat {
+        font_id: font.clone(),
+        color: c,
+        ..Default::default()
+    };
     let normal = Color32::from_rgb(20, 20, 20);
     let kw = Color32::from_rgb(0, 0, 230);
     let func = Color32::from_rgb(128, 0, 128);
@@ -342,7 +447,10 @@ pub fn highlight(text: &str) -> LayoutJob {
             continue;
         }
         if c == b'#' && line_start {
-            while i < b.len() && b[i] != b'\n' && !(b[i] == b'/' && i + 1 < b.len() && b[i + 1] == b'/') {
+            while i < b.len()
+                && b[i] != b'\n'
+                && !(b[i] == b'/' && i + 1 < b.len() && b[i + 1] == b'/')
+            {
                 i += 1;
             }
             job.append(&text[start..i], 0.0, fmt(pre));
@@ -370,7 +478,11 @@ pub fn highlight(text: &str) -> LayoutJob {
                 kw
             } else if builtins::is_builtin_func(w) {
                 func
-            } else if builtins::constant(w).is_some() || w.starts_with("ENUM_") || w.starts_with("Mql") || w.starts_with('C') && builtins::BUILTIN_CLASSES.contains(&w) {
+            } else if builtins::constant(w).is_some()
+                || w.starts_with("ENUM_")
+                || w.starts_with("Mql")
+                || w.starts_with('C') && builtins::BUILTIN_CLASSES.contains(&w)
+            {
                 cnst
             } else {
                 normal

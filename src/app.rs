@@ -131,6 +131,8 @@ pub struct TerminalApp {
     pub last_save: Instant,
     pub nav: HashMap<&'static str, Vec<storage::ProgramFile>>,
     pub nav_dirty: bool,
+    /// when the Navigator last looked for programs added outside the app (e.g. by an MCP agent)
+    pub nav_checked: Instant,
     pub last_deals: usize,
     pub ping_ms: u32,
 }
@@ -147,12 +149,17 @@ impl TerminalApp {
             saved.current = Some(51_270_384);
             storage::save_accounts(&saved);
         }
-        let cur = saved.current.and_then(|l| saved.accounts.iter().position(|a| a.login == l)).unwrap_or(0);
+        let cur = saved
+            .current
+            .and_then(|l| saved.accounts.iter().position(|a| a.login == l))
+            .unwrap_or(0);
         let mut app = TerminalApp {
             market: {
                 let mut m = Market::new();
                 // live crypto quotes unless offline or taking a screenshot
-                if (screenshot.is_none() || std::env::var("RUST_TERMINAL_LIVE").is_ok()) && std::env::var("RUST_TERMINAL_OFFLINE").is_err() {
+                if (screenshot.is_none() || std::env::var("RUST_TERMINAL_LIVE").is_ok())
+                    && std::env::var("RUST_TERMINAL_OFFLINE").is_err()
+                {
                     m.start_live();
                 }
                 m
@@ -183,21 +190,37 @@ impl TerminalApp {
             editor: Editor::default(),
             dialogs: Default::default(),
             tester: Default::default(),
-            screenshot: screenshot.map(|path| ScreenshotState { path, frames: 0, requested: false }),
+            screenshot: screenshot.map(|path| ScreenshotState {
+                path,
+                frames: 0,
+                requested: false,
+            }),
             last_tick: Instant::now(),
             last_save: Instant::now(),
             nav: HashMap::new(),
             nav_dirty: true,
+            nav_checked: Instant::now(),
             last_deals: 0,
             ping_ms: 38,
         };
         app.last_deals = app.account().deals.len();
-        app.log_journal("Terminal", "Rust Terminal started, data folder ".to_string() + &storage::data_dir().display().to_string());
+        app.log_journal(
+            "Terminal",
+            "Rust Terminal started, data folder ".to_string()
+                + &storage::data_dir().display().to_string(),
+        );
         let login = app.account().login;
         let server = app.account().server.clone();
         app.log_journal("Network", format!("'{}': authorized on {}", login, server));
-        app.log_journal("Network", format!("'{}': trading has been enabled - hedging mode", login));
-        let ws = if app.screenshot.is_some() { None } else { load_workspace() };
+        app.log_journal(
+            "Network",
+            format!("'{}': trading has been enabled - hedging mode", login),
+        );
+        let ws = if app.screenshot.is_some() {
+            None
+        } else {
+            load_workspace()
+        };
         match ws {
             Some(ws) if !ws.charts.is_empty() => app.restore_workspace(ws),
             _ => app.default_workspace(),
@@ -210,24 +233,53 @@ impl TerminalApp {
     }
 
     pub fn log_journal(&mut self, source: &str, text: String) {
-        self.journal.push(LogLine { time: unix_now(), source: source.to_string(), text, error: false });
+        self.journal.push(LogLine {
+            time: unix_now(),
+            source: source.to_string(),
+            text,
+            error: false,
+        });
     }
     pub fn log_error(&mut self, source: &str, text: String) {
-        self.journal.push(LogLine { time: unix_now(), source: source.to_string(), text, error: true });
+        self.journal.push(LogLine {
+            time: unix_now(),
+            source: source.to_string(),
+            text,
+            error: true,
+        });
     }
 
     fn default_workspace(&mut self) {
         let ind = |f: &str| storage::mql_dir().join("Indicators").join(f);
         let i = self.open_chart("EURUSD", Timeframe::H1);
-        self.charts[i].chart.builtins.push(BuiltinInd::new(IndKind::MovingAverage, IndParams::defaults(IndKind::MovingAverage)));
+        self.charts[i].chart.builtins.push(BuiltinInd::new(
+            IndKind::MovingAverage,
+            IndParams::defaults(IndKind::MovingAverage),
+        ));
         self.attach_program(i, &ind("Smoothed Price Line.mq5"), HashMap::new(), true);
         self.attach_program(i, &ind("RSI Color Histogram.mq5"), HashMap::new(), true);
-        self.attach_program(i, &storage::mql_dir().join("Experts").join("MA Crossover EA.mq5"), HashMap::new(), true);
+        self.attach_program(
+            i,
+            &storage::mql_dir()
+                .join("Experts")
+                .join("MA Crossover EA.mq5"),
+            HashMap::new(),
+            true,
+        );
         let j = self.open_chart("GBPUSD", Timeframe::H4);
-        self.charts[j].chart.builtins.push(BuiltinInd::new(IndKind::Bands, IndParams::defaults(IndKind::Bands)));
-        self.charts[j].chart.builtins.push(BuiltinInd::new(IndKind::Stochastic, IndParams::defaults(IndKind::Stochastic)));
+        self.charts[j].chart.builtins.push(BuiltinInd::new(
+            IndKind::Bands,
+            IndParams::defaults(IndKind::Bands),
+        ));
+        self.charts[j].chart.builtins.push(BuiltinInd::new(
+            IndKind::Stochastic,
+            IndParams::defaults(IndKind::Stochastic),
+        ));
         let k = self.open_chart("XAUUSD", Timeframe::M15);
-        self.charts[k].chart.builtins.push(BuiltinInd::new(IndKind::Ichimoku, IndParams::defaults(IndKind::Ichimoku)));
+        self.charts[k].chart.builtins.push(BuiltinInd::new(
+            IndKind::Ichimoku,
+            IndParams::defaults(IndKind::Ichimoku),
+        ));
         let l = self.open_chart("USDJPY", Timeframe::D1);
         self.attach_program(l, &ind("Price Channel.mq5"), HashMap::new(), true);
         self.charts[l].chart.volumes = true;
@@ -235,7 +287,12 @@ impl TerminalApp {
     }
 
     pub fn workspace(&self) -> Workspace {
-        let rel = |p: &Path| p.strip_prefix(storage::mql_dir()).unwrap_or(p).to_string_lossy().replace('\\', "/");
+        let rel = |p: &Path| {
+            p.strip_prefix(storage::mql_dir())
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
         Workspace {
             charts: self
                 .charts
@@ -244,10 +301,28 @@ impl TerminalApp {
                     symbol: s.chart.symbol.clone(),
                     tf: s.chart.tf,
                     mode: s.chart.mode,
-                    builtins: s.chart.builtins.iter().map(|b| (b.kind, b.params)).collect(),
-                    customs: s.customs.iter().map(|c| (rel(&c.path), c.inputs.clone())).collect(),
+                    builtins: s
+                        .chart
+                        .builtins
+                        .iter()
+                        .map(|b| (b.kind, b.params))
+                        .collect(),
+                    customs: s
+                        .customs
+                        .iter()
+                        .map(|c| (rel(&c.path), c.inputs.clone()))
+                        .collect(),
                     expert: s.expert.as_ref().map(|e| (rel(&e.path), e.inputs.clone())),
-                    objects: crate::objects::ChartObjects { list: s.chart.objects.list.iter().filter(|o| !o.from_program).cloned().collect() },
+                    objects: crate::objects::ChartObjects {
+                        list: s
+                            .chart
+                            .objects
+                            .list
+                            .iter()
+                            .filter(|o| !o.from_program)
+                            .cloned()
+                            .collect(),
+                    },
                     volumes: s.chart.volumes,
                     grid: s.chart.grid,
                 })
@@ -287,7 +362,10 @@ impl TerminalApp {
     }
 
     pub fn save_all(&mut self) {
-        let saved = storage::Saved { accounts: self.accounts.clone(), current: Some(self.account().login) };
+        let saved = storage::Saved {
+            accounts: self.accounts.clone(),
+            current: Some(self.account().login),
+        };
         storage::save_accounts(&saved);
         if self.screenshot.is_none() {
             if let Ok(j) = serde_json::to_string_pretty(&self.workspace()) {
@@ -303,7 +381,11 @@ impl TerminalApp {
         if let Some(i) = self.market.symbol_index(symbol) {
             self.market.bars(i, tf);
         }
-        self.charts.push(ChartSlot { chart: c, customs: vec![], expert: None });
+        self.charts.push(ChartSlot {
+            chart: c,
+            customs: vec![],
+            expert: None,
+        });
         self.active = self.charts.len() - 1;
         self.active
     }
@@ -323,15 +405,25 @@ impl TerminalApp {
     }
 
     /// Compile and attach a program file to a chart: indicator, expert, or run a script.
-    pub fn attach_program(&mut self, ci: usize, path: &Path, inputs: HashMap<String, String>, quiet: bool) -> bool {
+    pub fn attach_program(
+        &mut self,
+        ci: usize,
+        path: &Path,
+        inputs: HashMap<String, String>,
+        quiet: bool,
+    ) -> bool {
         let prog = match load_program(&mut self.cache, path) {
             Ok(p) => p,
             Err(e) => {
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 if !quiet || path.exists() {
                     self.log_error("Experts", format!("cannot load '{}' [{}]", name, e));
                     if !quiet {
-                        self.dialogs.message = Some(("Cannot load program".into(), format!("{}\n\n{}", name, e)));
+                        self.dialogs.message =
+                            Some(("Cannot load program".into(), format!("{}\n\n{}", name, e)));
                     }
                 }
                 return false;
@@ -340,11 +432,20 @@ impl TerminalApp {
         self.attach_compiled(ci, path, prog, inputs)
     }
 
-    pub fn attach_compiled(&mut self, ci: usize, path: &Path, prog: Rc<Program>, inputs: HashMap<String, String>) -> bool {
+    pub fn attach_compiled(
+        &mut self,
+        ci: usize,
+        path: &Path,
+        prog: Rc<Program>,
+        inputs: HashMap<String, String>,
+    ) -> bool {
         if ci >= self.charts.len() {
             return false;
         }
-        let (symbol, tf) = (self.charts[ci].chart.symbol.clone(), self.charts[ci].chart.tf);
+        let (symbol, tf) = (
+            self.charts[ci].chart.symbol.clone(),
+            self.charts[ci].chart.tf,
+        );
         let mut inst = Instance::new(prog.clone(), &symbol, tf, &inputs);
         let source = format!("{} ({},{})", inst.name, symbol, tf.label());
         let kind = prog.kind;
@@ -352,12 +453,24 @@ impl TerminalApp {
         match init {
             Ok(0) => {}
             Ok(code) => {
-                self.log_error("Experts", format!("{}: initialization failed (OnInit returned non-zero code {})", source, code));
+                self.log_error(
+                    "Experts",
+                    format!(
+                        "{}: initialization failed (OnInit returned non-zero code {})",
+                        source, code
+                    ),
+                );
                 return false;
             }
             Err(e) => {
                 let msg = inst.fmt_err(&e);
-                self.log_error("Experts", format!("{}: critical runtime error in OnInit function ({})", source, msg));
+                self.log_error(
+                    "Experts",
+                    format!(
+                        "{}: critical runtime error in OnInit function ({})",
+                        source, msg
+                    ),
+                );
                 return false;
             }
         }
@@ -365,15 +478,28 @@ impl TerminalApp {
             ProgramKind::Indicator => {
                 let r = self.with_host(ci, &source, |h| inst.calculate(h));
                 let error = r.err().map(|e| inst.fmt_err(&e));
-                self.log_journal("Experts", format!("custom indicator {} loaded successfully", source));
-                self.charts[ci].customs.push(CustomInd { inst, path: path.to_path_buf(), inputs, error });
+                self.log_journal(
+                    "Experts",
+                    format!("custom indicator {} loaded successfully", source),
+                );
+                self.charts[ci].customs.push(CustomInd {
+                    inst,
+                    path: path.to_path_buf(),
+                    inputs,
+                    error,
+                });
             }
             ProgramKind::Expert => {
                 if self.charts[ci].expert.is_some() {
                     self.remove_expert(ci, 1);
                 }
                 self.log_journal("Experts", format!("expert {} loaded successfully", source));
-                self.charts[ci].expert = Some(ExpertRun { inst, path: path.to_path_buf(), inputs, last_timer: Instant::now() });
+                self.charts[ci].expert = Some(ExpertRun {
+                    inst,
+                    path: path.to_path_buf(),
+                    inputs,
+                    last_timer: Instant::now(),
+                });
             }
             ProgramKind::Script => {
                 self.log_journal("Experts", format!("script {} loaded successfully", source));
@@ -384,7 +510,13 @@ impl TerminalApp {
                 });
                 if let Err(e) = r {
                     let msg = inst.fmt_err(&e);
-                    self.log_error("Experts", format!("{}: critical runtime error in OnStart function ({})", source, msg));
+                    self.log_error(
+                        "Experts",
+                        format!(
+                            "{}: critical runtime error in OnStart function ({})",
+                            source, msg
+                        ),
+                    );
                 }
                 self.log_journal("Experts", format!("script {} removed", source));
                 self.after_trades();
@@ -395,8 +527,25 @@ impl TerminalApp {
     }
 
     /// Run `f` with a live host for chart `ci`.
-    pub fn with_host<R>(&mut self, ci: usize, source: &str, f: impl FnOnce(&mut LiveHost) -> R) -> R {
-        let TerminalApp { market, accounts, cur, charts, journal, experts_log, alerts, gv, cache, algo, .. } = self;
+    pub fn with_host<R>(
+        &mut self,
+        ci: usize,
+        source: &str,
+        f: impl FnOnce(&mut LiveHost) -> R,
+    ) -> R {
+        let TerminalApp {
+            market,
+            accounts,
+            cur,
+            charts,
+            journal,
+            experts_log,
+            alerts,
+            gv,
+            cache,
+            algo,
+            ..
+        } = self;
         let slot = &mut charts[ci];
         let mut host = LiveHost {
             market,
@@ -418,7 +567,11 @@ impl TerminalApp {
         if let Some(mut e) = self.charts[ci].expert.take() {
             let source = format!("{} ({},{})", e.inst.name, e.inst.symbol, e.inst.tf.label());
             let _ = self.with_host(ci, &source, |h| e.inst.deinit(reason, h));
-            self.charts[ci].chart.objects.list.retain(|o| !o.from_program);
+            self.charts[ci]
+                .chart
+                .objects
+                .list
+                .retain(|o| !o.from_program);
             self.charts[ci].chart.comment.clear();
             self.log_journal("Experts", format!("expert {} removed", source));
         }
@@ -436,8 +589,15 @@ impl TerminalApp {
 
     /// Re-create the programs of a chart after its symbol or timeframe changed.
     pub fn rebuild_programs(&mut self, ci: usize) {
-        let customs: Vec<(PathBuf, HashMap<String, String>)> = self.charts[ci].customs.iter().map(|c| (c.path.clone(), c.inputs.clone())).collect();
-        let expert = self.charts[ci].expert.as_ref().map(|e| (e.path.clone(), e.inputs.clone()));
+        let customs: Vec<(PathBuf, HashMap<String, String>)> = self.charts[ci]
+            .customs
+            .iter()
+            .map(|c| (c.path.clone(), c.inputs.clone()))
+            .collect();
+        let expert = self.charts[ci]
+            .expert
+            .as_ref()
+            .map(|e| (e.path.clone(), e.inputs.clone()));
         self.remove_expert(ci, 3);
         while !self.charts[ci].customs.is_empty() {
             self.remove_custom(ci, 0, 3);
@@ -458,7 +618,10 @@ impl TerminalApp {
         for b in self.charts[ci].chart.builtins.iter_mut() {
             b.invalidate();
         }
-        if let Some(i) = self.market.symbol_index(&self.charts[ci].chart.symbol.clone()) {
+        if let Some(i) = self
+            .market
+            .symbol_index(&self.charts[ci].chart.symbol.clone())
+        {
             self.market.bars(i, tf);
         }
         self.rebuild_programs(ci);
@@ -475,7 +638,13 @@ impl TerminalApp {
                 let source = format!("{} ({},{})", c.inst.name, c.inst.symbol, c.inst.tf.label());
                 if let Err(e) = self.with_host(ci, &source, |h| c.inst.calculate(h)) {
                     let msg = c.inst.fmt_err(&e);
-                    logs.push((true, format!("{}: critical runtime error in OnCalculate function ({})", source, msg)));
+                    logs.push((
+                        true,
+                        format!(
+                            "{}: critical runtime error in OnCalculate function ({})",
+                            source, msg
+                        ),
+                    ));
                     c.error = Some(msg);
                 }
             }
@@ -486,7 +655,9 @@ impl TerminalApp {
                 ProgEvent::Tick => Some("OnTick"),
                 ProgEvent::Trade => Some("OnTrade"),
                 ProgEvent::Timer => {
-                    if e.inst.timer_ms > 0 && e.last_timer.elapsed() >= Duration::from_millis(e.inst.timer_ms) {
+                    if e.inst.timer_ms > 0
+                        && e.last_timer.elapsed() >= Duration::from_millis(e.inst.timer_ms)
+                    {
                         e.last_timer = Instant::now();
                         Some("OnTimer")
                     } else {
@@ -498,7 +669,13 @@ impl TerminalApp {
                 let r = self.with_host(ci, &source, |h| e.inst.call_event(name, vec![], h));
                 if let Err(err) = r {
                     let msg = e.inst.fmt_err(&err);
-                    logs.push((true, format!("{}: critical runtime error in {} function ({})", source, name, msg)));
+                    logs.push((
+                        true,
+                        format!(
+                            "{}: critical runtime error in {} function ({})",
+                            source, name, msg
+                        ),
+                    ));
                     remove_expert = true;
                 } else if e.inst.removed {
                     logs.push((false, format!("{}: expert removed itself", source)));
@@ -531,7 +708,12 @@ impl TerminalApp {
         if self.connected {
             let mut log = vec![];
             let now = self.market.now;
-            let TerminalApp { market, accounts, cur, .. } = self;
+            let TerminalApp {
+                market,
+                accounts,
+                cur,
+                ..
+            } = self;
             accounts[*cur].process(&*market, now, &mut log);
             for l in log {
                 self.log_journal("Trades", l);
@@ -539,7 +721,9 @@ impl TerminalApp {
         }
         for ci in 0..self.charts.len() {
             let sym = self.charts[ci].chart.symbol.clone();
-            let Some(si) = self.market.symbol_index(&sym) else { continue };
+            let Some(si) = self.market.symbol_index(&sym) else {
+                continue;
+            };
             if ticked.contains(&si) {
                 self.run_chart(ci, ProgEvent::Tick);
             }
@@ -569,19 +753,30 @@ impl TerminalApp {
     /// A trade the person asked for from the window.
     pub fn trade_ui(&mut self, op: TradeOp) {
         if !self.connected {
-            self.dialogs.message = Some(("No connection".into(), "Log in to an account first (File > Login to Trade Account).".into()));
+            self.dialogs.message = Some((
+                "No connection".into(),
+                "Log in to an account first (File > Login to Trade Account).".into(),
+            ));
             return;
         }
         let mut log = vec![];
         let r = {
-            let TerminalApp { market, accounts, cur, .. } = self;
+            let TerminalApp {
+                market,
+                accounts,
+                cur,
+                ..
+            } = self;
             crate::host::apply_trade(market, &mut accounts[*cur], op, &mut log)
         };
         for l in log {
             self.log_journal("Trades", l);
         }
         if r.retcode != crate::account::RET_DONE {
-            self.dialogs.message = Some(("Order failed".into(), format!("{} (code {})", r.comment, r.retcode)));
+            self.dialogs.message = Some((
+                "Order failed".into(),
+                format!("{} (code {})", r.comment, r.retcode),
+            ));
         }
         self.after_trades();
     }
@@ -607,7 +802,11 @@ impl TerminalApp {
     }
 
     pub fn login(&mut self, login: u64, password: &str) -> Result<(), String> {
-        let idx = self.accounts.iter().position(|a| a.login == login).ok_or_else(|| "Invalid account".to_string())?;
+        let idx = self
+            .accounts
+            .iter()
+            .position(|a| a.login == login)
+            .ok_or_else(|| "Invalid account".to_string())?;
         if !self.accounts[idx].password.is_empty() && self.accounts[idx].password != password {
             return Err("Invalid account".into());
         }
@@ -616,7 +815,10 @@ impl TerminalApp {
         self.last_deals = self.account().deals.len();
         let server = self.account().server.clone();
         self.log_journal("Network", format!("'{}': authorized on {}", login, server));
-        self.log_journal("Network", format!("'{}': trading has been enabled - hedging mode", login));
+        self.log_journal(
+            "Network",
+            format!("'{}': trading has been enabled - hedging mode", login),
+        );
         // experts see the account change
         for ci in 0..self.charts.len() {
             if self.charts[ci].expert.is_some() {
@@ -627,22 +829,45 @@ impl TerminalApp {
         Ok(())
     }
 
+    /// Every two seconds, refresh the Navigator when programs were added, renamed or removed
+    /// on disk (by an editor or a coding agent through the MCP server).
+    fn check_nav_changes(&mut self) {
+        if self.nav_checked.elapsed() < std::time::Duration::from_secs(2) {
+            return;
+        }
+        self.nav_checked = Instant::now();
+        let changed = self.nav.iter().any(|(folder, cached)| {
+            let fresh = storage::list_programs(folder);
+            fresh.len() != cached.len() || fresh.iter().zip(cached).any(|(a, b)| a.rel != b.rel)
+        });
+        if changed {
+            self.nav_dirty = true;
+            self.editor.refresh_tree();
+        }
+    }
+
     pub fn nav_list(&mut self, folder: &'static str) -> Vec<storage::ProgramFile> {
         if self.nav_dirty {
             self.nav.clear();
             self.nav_dirty = false;
         }
-        self.nav.entry(folder).or_insert_with(|| storage::list_programs(folder)).clone()
+        self.nav
+            .entry(folder)
+            .or_insert_with(|| storage::list_programs(folder))
+            .clone()
     }
 }
 
 fn load_workspace() -> Option<Workspace> {
-    std::fs::read_to_string(storage::data_dir().join("workspace.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
+    std::fs::read_to_string(storage::data_dir().join("workspace.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
 }
 
 impl eframe::App for TerminalApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.tick();
+        self.check_nav_changes();
         crate::ui::draw(self, ctx);
         // screenshot mode
         if let Some(s) = &mut self.screenshot {
@@ -664,7 +889,13 @@ impl eframe::App for TerminalApp {
                 if let Some(dir) = s.path.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
-                match image::save_buffer(&s.path, &bytes, w as u32, h as u32, image::ColorType::Rgba8) {
+                match image::save_buffer(
+                    &s.path,
+                    &bytes,
+                    w as u32,
+                    h as u32,
+                    image::ColorType::Rgba8,
+                ) {
                     Ok(()) => println!("screenshot saved to {}", s.path.display()),
                     Err(e) => eprintln!("failed to save screenshot: {}", e),
                 }

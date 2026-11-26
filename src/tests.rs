@@ -13,18 +13,36 @@ fn no_loader(_: &str) -> Option<String> {
 }
 
 fn run_ea(name: &str, src: &str) -> TestRun {
-    let prog = Rc::new(compile(name, src, &no_loader).unwrap_or_else(|e| panic!("{}: {:?}", name, e)));
+    let prog =
+        Rc::new(compile(name, src, &no_loader).unwrap_or_else(|e| panic!("{}: {:?}", name, e)));
     let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
-    let mut run = TestRun::new(prog, spec, Timeframe::H1, bars, TickMode::OhlcPoints, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+    let mut run = TestRun::new(
+        prog,
+        spec,
+        Timeframe::H1,
+        bars,
+        TickMode::OhlcPoints,
+        10000.0,
+        100,
+        &HashMap::new(),
+        Box::new(|n| Err(format!("no {}", n))),
+    );
     while !run.step(200) {}
     run
 }
 
 #[test]
 fn samples_compile() {
-    for (name, src) in SAMPLES.iter().chain([("t1.mq5", TEMPLATE_INDICATOR), ("t2.mq5", TEMPLATE_EXPERT), ("t3.mq5", TEMPLATE_SCRIPT)].iter()) {
+    for (name, src) in SAMPLES.iter().chain(
+        [
+            ("t1.mq5", TEMPLATE_INDICATOR),
+            ("t2.mq5", TEMPLATE_EXPERT),
+            ("t3.mq5", TEMPLATE_SCRIPT),
+        ]
+        .iter(),
+    ) {
         if let Err(e) = compile(name, src, &no_loader) {
             panic!("{} failed: {:?}", name, e);
         }
@@ -41,32 +59,59 @@ fn compile_errors_reported() {
 
 #[test]
 fn ma_cross_trades() {
-    let src = SAMPLES.iter().find(|(n, _)| n.contains("MA Crossover")).unwrap().1;
+    let src = SAMPLES
+        .iter()
+        .find(|(n, _)| n.contains("MA Crossover"))
+        .unwrap()
+        .1;
     let run = run_ea("ma.mq5", src);
     assert!(run.error.is_none(), "{:?} {:?}", run.error, run.host.log);
     let r = run.report();
-    assert!(r.trades > 0, "no trades: {:?}", &run.host.log[..run.host.log.len().min(20)]);
+    assert!(
+        r.trades > 0,
+        "no trades: {:?}",
+        &run.host.log[..run.host.log.len().min(20)]
+    );
 }
 
 #[test]
 fn rsi_ea_runs() {
-    let src = SAMPLES.iter().find(|(n, _)| n.contains("RSI Reversal")).unwrap().1;
+    let src = SAMPLES
+        .iter()
+        .find(|(n, _)| n.contains("RSI Reversal"))
+        .unwrap()
+        .1;
     let run = run_ea("rsi.mq5", src);
     assert!(run.error.is_none(), "{:?}", run.error);
 }
 
 #[test]
 fn indicators_fill_buffers() {
-    for (name, src) in SAMPLES.iter().filter(|(n, _)| n.starts_with("Indicators/")).chain([("t1.mq5", TEMPLATE_INDICATOR)].iter()) {
+    for (name, src) in SAMPLES
+        .iter()
+        .filter(|(n, _)| n.starts_with("Indicators/"))
+        .chain([("t1.mq5", TEMPLATE_INDICATOR)].iter())
+    {
         let prog = Rc::new(compile(name, src, &no_loader).unwrap());
         let mut m = Market::new_simulated();
         let bars = m.bars(0, Timeframe::H1).to_vec();
         let spec = m.symbols[0].spec.clone();
-        let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+        let mut run = TestRun::new(
+            prog.clone(),
+            spec,
+            Timeframe::H1,
+            bars.clone(),
+            TickMode::OpenPrices,
+            10000.0,
+            100,
+            &HashMap::new(),
+            Box::new(|n| Err(format!("no {}", n))),
+        );
         run.host.view = bars.clone();
         let mut inst = crate::mql::Instance::new(prog, "EURUSD", Timeframe::H1, &HashMap::new());
         inst.init(&mut run.host).unwrap();
-        inst.calculate(&mut run.host).unwrap_or_else(|e| panic!("{}: {}", name, inst.fmt_err(&e)));
+        inst.calculate(&mut run.host)
+            .unwrap_or_else(|e| panic!("{}: {}", name, inst.fmt_err(&e)));
         let plots = inst.plot_data();
         assert!(!plots.is_empty(), "{} has no plots", name);
         let data = &plots[0].1[0];
@@ -101,12 +146,27 @@ void OnStart() {
     let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
-    let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+    let mut run = TestRun::new(
+        prog.clone(),
+        spec,
+        Timeframe::H1,
+        bars,
+        TickMode::OpenPrices,
+        10000.0,
+        100,
+        &HashMap::new(),
+        Box::new(|n| Err(format!("no {}", n))),
+    );
     let mut inst = crate::mql::Instance::new(prog, "EURUSD", Timeframe::H1, &HashMap::new());
     inst.init(&mut run.host).unwrap();
-    inst.call_event("OnStart", vec![], &mut run.host).unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
+    inst.call_event("OnStart", vec![], &mut run.host)
+        .unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
     let last = run.host.log.last().unwrap().clone();
-    assert!(last.ends_with("3 3.5 x3 3 112 55 2 9 003.1|ab |42"), "{}", last);
+    assert!(
+        last.ends_with("3 3.5 x3 3 112 55 2 9 003.1|ab |42"),
+        "{}",
+        last
+    );
 }
 
 #[test]
@@ -116,25 +176,54 @@ fn runtime_errors() {
     let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
-    let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+    let mut run = TestRun::new(
+        prog.clone(),
+        spec,
+        Timeframe::H1,
+        bars,
+        TickMode::OpenPrices,
+        10000.0,
+        100,
+        &HashMap::new(),
+        Box::new(|n| Err(format!("no {}", n))),
+    );
     let mut inst = crate::mql::Instance::new(prog, "EURUSD", Timeframe::H1, &HashMap::new());
     inst.init(&mut run.host).unwrap();
-    let e = inst.call_event("OnStart", vec![], &mut run.host).unwrap_err();
+    let e = inst
+        .call_event("OnStart", vec![], &mut run.host)
+        .unwrap_err();
     assert_eq!(e.msg, "zero divide");
 }
 
 /// Compile and run a script's OnStart, returning what it printed.
 fn run_script(src: &str) -> Vec<String> {
-    let prog = Rc::new(compile("script.mq5", src, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
+    let prog =
+        Rc::new(compile("script.mq5", src, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
     let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
-    let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+    let mut run = TestRun::new(
+        prog.clone(),
+        spec,
+        Timeframe::H1,
+        bars,
+        TickMode::OpenPrices,
+        10000.0,
+        100,
+        &HashMap::new(),
+        Box::new(|n| Err(format!("no {}", n))),
+    );
     let mut inst = crate::mql::Instance::new(prog, "EURUSD", Timeframe::H1, &HashMap::new());
-    inst.init(&mut run.host).unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
-    inst.call_event("OnStart", vec![], &mut run.host).unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
+    inst.init(&mut run.host)
+        .unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
+    inst.call_event("OnStart", vec![], &mut run.host)
+        .unwrap_or_else(|e| panic!("{}", inst.fmt_err(&e)));
     // log lines look like "time\tprogram\tmessage" or similar: keep only the message text
-    run.host.log.iter().map(|l| l.rsplit('\t').next().unwrap_or(l).to_string()).collect()
+    run.host
+        .log
+        .iter()
+        .map(|l| l.rsplit('\t').next().unwrap_or(l).to_string())
+        .collect()
 }
 
 fn last_line(src: &str) -> String {
@@ -251,7 +340,11 @@ void OnStart() {
 "#;
     let lines = run_script(src);
     let joined = lines.join("\n");
-    assert!(joined.contains("rect=6.0 square=16.0 22 16 2 true 8 2.5 hi true true true"), "{}", joined);
+    assert!(
+        joined.contains("rect=6.0 square=16.0 22 16 2 true 8 2.5 hi true true true"),
+        "{}",
+        joined
+    );
     assert!(lines.last().unwrap().ends_with("bye square"), "{}", joined);
 }
 
@@ -299,74 +392,133 @@ fn corpus() {
         let base = f.parent().unwrap().to_path_buf();
         let inc = inc_root.clone();
         let loader = move |p: &str| -> Option<String> {
-            [base.join(p), inc.join(p)].iter().find_map(|c| std::fs::read(c).ok()).map(|b| crate::storage::decode_source(&b))
+            [base.join(p), inc.join(p)]
+                .iter()
+                .find_map(|c| std::fs::read(c).ok())
+                .map(|b| crate::storage::decode_source(&b))
         };
         let name = f.file_name().unwrap().to_string_lossy().to_string();
         let prog = match compile(&name, &src, &loader) {
             Ok(p) => Rc::new(p),
             Err(e) => {
-                let first = e.first().map(|e| format!("{} (line {})", e.msg, e.line)).unwrap_or_default();
+                let first = e
+                    .first()
+                    .map(|e| format!("{} (line {})", e.msg, e.line))
+                    .unwrap_or_default();
                 let key = first.split(" (line").next().unwrap_or("").to_string();
                 let key = key.split(" - ").last().unwrap_or(&key).to_string();
                 println!("COMPILE FAIL {}: {}", rel, first);
                 for x in &e {
                     println!("ERR {}", x.msg);
                 }
-                errs.entry(format!("compile: {}", key)).or_default().push(rel);
+                errs.entry(format!("compile: {}", key))
+                    .or_default()
+                    .push(rel);
                 continue;
             }
         };
         ok_c += 1;
         let ind_root2 = ind_root.clone();
         let inc2 = inc_root.clone();
-        let prog_loader: Box<dyn Fn(&str) -> Result<Rc<crate::mql::Program>, String>> = Box::new(move |n: &str| {
-            let rel = n.replace('\\', "/");
-            let rel = if rel.ends_with(".mq5") { rel } else { format!("{}.mq5", rel) };
-            let p = ind_root2.join(&rel);
-            let b = std::fs::read(&p).map_err(|e| format!("{}: {}", rel, e))?;
-            let src = crate::storage::decode_source(&b);
-            let base = p.parent().unwrap().to_path_buf();
-            let inc = inc2.clone();
-            let l = move |q: &str| -> Option<String> { [base.join(q), inc.join(q)].iter().find_map(|c| std::fs::read(c).ok()).map(|b| crate::storage::decode_source(&b)) };
-            compile(&rel, &src, &l).map(Rc::new).map_err(|e| format!("{:?}", e.first()))
-        });
-        let result: Result<(), String> = (|| {
-            match prog.kind {
-                crate::mql::ProgramKind::Indicator => {
-                    let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), prog_loader);
-                    run.host.view = bars.clone();
-                    let mut inst = crate::mql::Instance::new(prog.clone(), "EURUSD", Timeframe::H1, &HashMap::new());
-                    let code = inst.init(&mut run.host).map_err(|e| inst.fmt_err(&e))?;
-                    if code != 0 {
-                        return Err(format!("OnInit returned {}", code));
-                    }
-                    inst.calculate(&mut run.host).map_err(|e| inst.fmt_err(&e))?;
-                    inst.calculate(&mut run.host).map_err(|e| inst.fmt_err(&e))?;
-                    Ok(())
+        let prog_loader: Box<dyn Fn(&str) -> Result<Rc<crate::mql::Program>, String>> =
+            Box::new(move |n: &str| {
+                let rel = n.replace('\\', "/");
+                let rel = if rel.ends_with(".mq5") {
+                    rel
+                } else {
+                    format!("{}.mq5", rel)
+                };
+                let p = ind_root2.join(&rel);
+                let b = std::fs::read(&p).map_err(|e| format!("{}: {}", rel, e))?;
+                let src = crate::storage::decode_source(&b);
+                let base = p.parent().unwrap().to_path_buf();
+                let inc = inc2.clone();
+                let l = move |q: &str| -> Option<String> {
+                    [base.join(q), inc.join(q)]
+                        .iter()
+                        .find_map(|c| std::fs::read(c).ok())
+                        .map(|b| crate::storage::decode_source(&b))
+                };
+                compile(&rel, &src, &l)
+                    .map(Rc::new)
+                    .map_err(|e| format!("{:?}", e.first()))
+            });
+        let result: Result<(), String> = (|| match prog.kind {
+            crate::mql::ProgramKind::Indicator => {
+                let mut run = TestRun::new(
+                    prog.clone(),
+                    spec.clone(),
+                    Timeframe::H1,
+                    bars.clone(),
+                    TickMode::OpenPrices,
+                    10000.0,
+                    100,
+                    &HashMap::new(),
+                    prog_loader,
+                );
+                run.host.view = bars.clone();
+                let mut inst = crate::mql::Instance::new(
+                    prog.clone(),
+                    "EURUSD",
+                    Timeframe::H1,
+                    &HashMap::new(),
+                );
+                let code = inst.init(&mut run.host).map_err(|e| inst.fmt_err(&e))?;
+                if code != 0 {
+                    return Err(format!("OnInit returned {}", code));
                 }
-                crate::mql::ProgramKind::Expert => {
-                    let short: Vec<crate::market::Bar> = bars[..600.min(bars.len())].to_vec();
-                    let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, short, TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), prog_loader);
-                    let mut guard = 0;
-                    while !run.step(100) && guard < 1000 {
-                        guard += 1;
-                    }
-                    match &run.error {
-                        Some(e) => Err(e.clone()),
-                        None => Ok(()),
-                    }
-                }
-                crate::mql::ProgramKind::Script if std::env::var("CORPUS_SCRIPTS").is_ok() => {
-                    let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), prog_loader);
-                    run.host.view = bars.clone();
-                    let r = run.inst.call_event("OnStart", vec![], &mut run.host).map(|_| ()).map_err(|e| run.inst.fmt_err(&e));
-                    for l in &run.host.log {
-                        println!("LOG {}", l);
-                    }
-                    r
-                }
-                _ => Ok(()),
+                inst.calculate(&mut run.host)
+                    .map_err(|e| inst.fmt_err(&e))?;
+                inst.calculate(&mut run.host)
+                    .map_err(|e| inst.fmt_err(&e))?;
+                Ok(())
             }
+            crate::mql::ProgramKind::Expert => {
+                let short: Vec<crate::market::Bar> = bars[..600.min(bars.len())].to_vec();
+                let mut run = TestRun::new(
+                    prog.clone(),
+                    spec.clone(),
+                    Timeframe::H1,
+                    short,
+                    TickMode::OpenPrices,
+                    10000.0,
+                    100,
+                    &HashMap::new(),
+                    prog_loader,
+                );
+                let mut guard = 0;
+                while !run.step(100) && guard < 1000 {
+                    guard += 1;
+                }
+                match &run.error {
+                    Some(e) => Err(e.clone()),
+                    None => Ok(()),
+                }
+            }
+            crate::mql::ProgramKind::Script if std::env::var("CORPUS_SCRIPTS").is_ok() => {
+                let mut run = TestRun::new(
+                    prog.clone(),
+                    spec.clone(),
+                    Timeframe::H1,
+                    bars.clone(),
+                    TickMode::OpenPrices,
+                    10000.0,
+                    100,
+                    &HashMap::new(),
+                    prog_loader,
+                );
+                run.host.view = bars.clone();
+                let r = run
+                    .inst
+                    .call_event("OnStart", vec![], &mut run.host)
+                    .map(|_| ())
+                    .map_err(|e| run.inst.fmt_err(&e));
+                for l in &run.host.log {
+                    println!("LOG {}", l);
+                }
+                r
+            }
+            _ => Ok(()),
         })();
         match result {
             Ok(()) => ok_r += 1,
@@ -379,7 +531,12 @@ fn corpus() {
     }
     let mut v: Vec<_> = errs.into_iter().collect();
     v.sort_by_key(|(_, f)| std::cmp::Reverse(f.len()));
-    println!("\n==== {} files: {} compile, {} compile+run OK ====", files.len(), ok_c, ok_r);
+    println!(
+        "\n==== {} files: {} compile, {} compile+run OK ====",
+        files.len(),
+        ok_c,
+        ok_r
+    );
     for (k, f) in v.iter().take(60) {
         println!("{:4}  {}", f.len(), k);
     }
@@ -393,36 +550,215 @@ fn corpus() {
 fn reference_indicators() {
     use crate::indicators::{IndKind, IndParams};
     use crate::indicators_ext::{ExtKind, ExtParams};
-    let script_buffers = |k: IndKind, p: &IndParams, b: &[crate::market::Bar]| crate::mt5ind::builtin(k, p, b);
-    let ext = |k: ExtKind, p: &ExtParams, b: &[crate::market::Bar]| crate::mt5ind::ext(k, p, b, 0.00001).unwrap_or_else(|| crate::indicators_ext::compute(k, p, b));
+    let script_buffers =
+        |k: IndKind, p: &IndParams, b: &[crate::market::Bar]| crate::mt5ind::builtin(k, p, b);
+    let ext = |k: ExtKind, p: &ExtParams, b: &[crate::market::Bar]| {
+        crate::mt5ind::ext(k, p, b, 0.00001)
+            .unwrap_or_else(|| crate::indicators_ext::compute(k, p, b))
+    };
     let root = std::path::PathBuf::from(std::env::var("CORPUS").expect("set CORPUS"));
     let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     let d = |k: IndKind| IndParams::defaults(k);
-    let e = |k: ExtKind, i: &[i64]| ext(k, &ExtParams { i: i.to_vec(), f: vec![] }, &bars);
+    let e = |k: ExtKind, i: &[i64]| {
+        ext(
+            k,
+            &ExtParams {
+                i: i.to_vec(),
+                f: vec![],
+            },
+            &bars,
+        )
+    };
     type Case = (&'static str, Vec<Vec<f64>>, Vec<(usize, usize)>);
     let cases: Vec<Case> = vec![
-        ("RSI", script_buffers(IndKind::Rsi, &IndParams { p1: 14, ..d(IndKind::Rsi) }, &bars), vec![(0, 0)]),
-        ("MACD", script_buffers(IndKind::Macd, &IndParams { p1: 12, p2: 26, p3: 9, ..d(IndKind::Macd) }, &bars), vec![(0, 0), (1, 1)]),
-        ("ATR", script_buffers(IndKind::Atr, &IndParams { p1: 14, ..d(IndKind::Atr) }, &bars), vec![(0, 0)]),
-        ("BB", script_buffers(IndKind::Bands, &IndParams { p1: 20, f1: 2.0, ..d(IndKind::Bands) }, &bars), vec![(0, 0), (1, 1), (2, 2)]),
-        ("CCI", script_buffers(IndKind::Cci, &IndParams { p1: 14, price: 1, ..d(IndKind::Cci) }, &bars), vec![(0, 0)]),
-        ("Momentum", script_buffers(IndKind::Momentum, &IndParams { p1: 14, ..d(IndKind::Momentum) }, &bars), vec![(0, 0)]),
-        ("Stochastic", script_buffers(IndKind::Stochastic, &IndParams { p1: 5, p2: 3, p3: 3, ..d(IndKind::Stochastic) }, &bars), vec![(0, 0), (1, 1)]),
-        ("ADX", script_buffers(IndKind::Adx, &IndParams { p1: 14, ..d(IndKind::Adx) }, &bars), vec![(0, 0), (1, 1), (2, 2)]),
-        ("WPR", script_buffers(IndKind::Wpr, &IndParams { p1: 14, ..d(IndKind::Wpr) }, &bars), vec![(0, 0)]),
-        ("Custom Moving Average", script_buffers(IndKind::MovingAverage, &IndParams { p1: 13, method: 2, ..d(IndKind::MovingAverage) }, &bars), vec![(0, 0)]),
-        ("Envelopes", script_buffers(IndKind::Envelopes, &IndParams { p1: 14, f1: 0.1, ..d(IndKind::Envelopes) }, &bars), vec![(0, 0), (1, 1)]),
-        ("Ichimoku", script_buffers(IndKind::Ichimoku, &IndParams { p1: 9, p2: 26, p3: 52, ..d(IndKind::Ichimoku) }, &bars), vec![(0, 0), (1, 1)]),
-        ("ParabolicSAR", script_buffers(IndKind::Sar, &IndParams { f1: 0.02, f2: 0.2, ..d(IndKind::Sar) }, &bars), vec![(0, 0)]),
-        ("Alligator", script_buffers(IndKind::Alligator, &d(IndKind::Alligator), &bars), vec![(0, 0), (1, 1), (2, 2)]),
-        ("Fractals", script_buffers(IndKind::Fractals, &d(IndKind::Fractals), &bars), vec![(0, 0), (1, 1)]),
+        (
+            "RSI",
+            script_buffers(
+                IndKind::Rsi,
+                &IndParams {
+                    p1: 14,
+                    ..d(IndKind::Rsi)
+                },
+                &bars,
+            ),
+            vec![(0, 0)],
+        ),
+        (
+            "MACD",
+            script_buffers(
+                IndKind::Macd,
+                &IndParams {
+                    p1: 12,
+                    p2: 26,
+                    p3: 9,
+                    ..d(IndKind::Macd)
+                },
+                &bars,
+            ),
+            vec![(0, 0), (1, 1)],
+        ),
+        (
+            "ATR",
+            script_buffers(
+                IndKind::Atr,
+                &IndParams {
+                    p1: 14,
+                    ..d(IndKind::Atr)
+                },
+                &bars,
+            ),
+            vec![(0, 0)],
+        ),
+        (
+            "BB",
+            script_buffers(
+                IndKind::Bands,
+                &IndParams {
+                    p1: 20,
+                    f1: 2.0,
+                    ..d(IndKind::Bands)
+                },
+                &bars,
+            ),
+            vec![(0, 0), (1, 1), (2, 2)],
+        ),
+        (
+            "CCI",
+            script_buffers(
+                IndKind::Cci,
+                &IndParams {
+                    p1: 14,
+                    price: 1,
+                    ..d(IndKind::Cci)
+                },
+                &bars,
+            ),
+            vec![(0, 0)],
+        ),
+        (
+            "Momentum",
+            script_buffers(
+                IndKind::Momentum,
+                &IndParams {
+                    p1: 14,
+                    ..d(IndKind::Momentum)
+                },
+                &bars,
+            ),
+            vec![(0, 0)],
+        ),
+        (
+            "Stochastic",
+            script_buffers(
+                IndKind::Stochastic,
+                &IndParams {
+                    p1: 5,
+                    p2: 3,
+                    p3: 3,
+                    ..d(IndKind::Stochastic)
+                },
+                &bars,
+            ),
+            vec![(0, 0), (1, 1)],
+        ),
+        (
+            "ADX",
+            script_buffers(
+                IndKind::Adx,
+                &IndParams {
+                    p1: 14,
+                    ..d(IndKind::Adx)
+                },
+                &bars,
+            ),
+            vec![(0, 0), (1, 1), (2, 2)],
+        ),
+        (
+            "WPR",
+            script_buffers(
+                IndKind::Wpr,
+                &IndParams {
+                    p1: 14,
+                    ..d(IndKind::Wpr)
+                },
+                &bars,
+            ),
+            vec![(0, 0)],
+        ),
+        (
+            "Custom Moving Average",
+            script_buffers(
+                IndKind::MovingAverage,
+                &IndParams {
+                    p1: 13,
+                    method: 2,
+                    ..d(IndKind::MovingAverage)
+                },
+                &bars,
+            ),
+            vec![(0, 0)],
+        ),
+        (
+            "Envelopes",
+            script_buffers(
+                IndKind::Envelopes,
+                &IndParams {
+                    p1: 14,
+                    f1: 0.1,
+                    ..d(IndKind::Envelopes)
+                },
+                &bars,
+            ),
+            vec![(0, 0), (1, 1)],
+        ),
+        (
+            "Ichimoku",
+            script_buffers(
+                IndKind::Ichimoku,
+                &IndParams {
+                    p1: 9,
+                    p2: 26,
+                    p3: 52,
+                    ..d(IndKind::Ichimoku)
+                },
+                &bars,
+            ),
+            vec![(0, 0), (1, 1)],
+        ),
+        (
+            "ParabolicSAR",
+            script_buffers(
+                IndKind::Sar,
+                &IndParams {
+                    f1: 0.02,
+                    f2: 0.2,
+                    ..d(IndKind::Sar)
+                },
+                &bars,
+            ),
+            vec![(0, 0)],
+        ),
+        (
+            "Alligator",
+            script_buffers(IndKind::Alligator, &d(IndKind::Alligator), &bars),
+            vec![(0, 0), (1, 1), (2, 2)],
+        ),
+        (
+            "Fractals",
+            script_buffers(IndKind::Fractals, &d(IndKind::Fractals), &bars),
+            vec![(0, 0), (1, 1)],
+        ),
         ("DEMA", e(ExtKind::Dema, &[14, 0, 1]), vec![(0, 0)]),
         ("TEMA", e(ExtKind::Tema, &[14, 0, 1]), vec![(0, 0)]),
         ("TRIX", e(ExtKind::Trix, &[14, 1]), vec![(0, 0)]),
         ("OsMA", e(ExtKind::Osma, &[12, 26, 9, 1]), vec![(0, 0)]),
-        ("Awesome_Oscillator", e(ExtKind::Ao, &[]), vec![(0, 0), (1, 1)]),
+        (
+            "Awesome_Oscillator",
+            e(ExtKind::Ao, &[]),
+            vec![(0, 0), (1, 1)],
+        ),
         ("Accelerator", e(ExtKind::Ac, &[]), vec![(0, 0), (1, 1)]),
         ("Bears", e(ExtKind::Bears, &[13]), vec![(0, 0)]),
         ("Bulls", e(ExtKind::Bulls, &[13]), vec![(0, 0)]),
@@ -434,17 +770,31 @@ fn reference_indicators() {
         ("DeMarker", e(ExtKind::DeMarker, &[14]), vec![(0, 0)]),
         ("CHO", e(ExtKind::Chaikin, &[3, 10, 1, 0]), vec![(0, 0)]),
         ("AD", e(ExtKind::Ad, &[0]), vec![(0, 0)]),
-        ("MarketFacilitationIndex", e(ExtKind::Bwmfi, &[0]), vec![(0, 0)]),
-        ("Gator", e(ExtKind::Gator, &[13, 8, 8, 5, 5, 3, 2, 5]), vec![(0, 0), (2, 2)]),
+        (
+            "MarketFacilitationIndex",
+            e(ExtKind::Bwmfi, &[0]),
+            vec![(0, 0)],
+        ),
+        (
+            "Gator",
+            e(ExtKind::Gator, &[13, 8, 8, 5, 5, 3, 2, 5]),
+            vec![(0, 0), (2, 2)],
+        ),
         ("AMA", e(ExtKind::Ama, &[10, 2, 30, 0, 1]), vec![(0, 0)]),
         ("FrAMA", e(ExtKind::Frama, &[14, 0, 1]), vec![(0, 0)]),
         ("VIDYA", e(ExtKind::Vidya, &[9, 12, 0, 1]), vec![(0, 0)]),
-        ("ADXW", e(ExtKind::AdxWilder, &[14]), vec![(0, 0), (1, 1), (2, 2)]),
+        (
+            "ADXW",
+            e(ExtKind::AdxWilder, &[14]),
+            vec![(0, 0), (1, 1), (2, 2)],
+        ),
     ];
     let inc = root.join("Include");
     let mut exact = 0;
     for (name, native, pairs) in cases {
-        let path = root.join("Indicators/Examples").join(format!("{}.mq5", name));
+        let path = root
+            .join("Indicators/Examples")
+            .join(format!("{}.mq5", name));
         let src = match std::fs::read(&path) {
             Ok(b) => crate::storage::decode_source(&b),
             Err(_) => {
@@ -453,7 +803,11 @@ fn reference_indicators() {
             }
         };
         let inc2 = inc.clone();
-        let loader = move |p: &str| -> Option<String> { std::fs::read(inc2.join(p)).ok().map(|b| crate::storage::decode_source(&b)) };
+        let loader = move |p: &str| -> Option<String> {
+            std::fs::read(inc2.join(p))
+                .ok()
+                .map(|b| crate::storage::decode_source(&b))
+        };
         let prog = match compile(name, &src, &loader) {
             Ok(p) => Rc::new(p),
             Err(e) => {
@@ -461,10 +815,23 @@ fn reference_indicators() {
                 continue;
             }
         };
-        let mut run = TestRun::new(prog.clone(), spec.clone(), Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+        let mut run = TestRun::new(
+            prog.clone(),
+            spec.clone(),
+            Timeframe::H1,
+            bars.clone(),
+            TickMode::OpenPrices,
+            10000.0,
+            100,
+            &HashMap::new(),
+            Box::new(|n| Err(format!("no {}", n))),
+        );
         run.host.view = bars.clone();
         let mut inst = crate::mql::Instance::new(prog, "EURUSD", Timeframe::H1, &HashMap::new());
-        if let Err(er) = inst.init(&mut run.host).and_then(|_| inst.calculate(&mut run.host)) {
+        if let Err(er) = inst
+            .init(&mut run.host)
+            .and_then(|_| inst.calculate(&mut run.host))
+        {
             println!("{:24} run error {}", name, inst.fmt_err(&er));
             continue;
         }
@@ -477,7 +844,8 @@ fn reference_indicators() {
             };
             let nv = native.get(nb).cloned().unwrap_or_default();
             let ok = |x: f64| x.is_finite() && x != f64::MAX && x.abs() < 1e300;
-            let (mut cnt, mut maxd, mut maxd_tail, mut only_r, mut only_n) = (0, 0.0f64, 0.0f64, 0, 0);
+            let (mut cnt, mut maxd, mut maxd_tail, mut only_r, mut only_n) =
+                (0, 0.0f64, 0.0f64, 0, 0);
             let n = r.len().min(nv.len());
             for i in 0..n {
                 match (ok(r[i]), ok(nv[i])) {
@@ -496,7 +864,10 @@ fn reference_indicators() {
             }
             let good = maxd < 1e-9 && only_r == 0 && only_n == 0 && cnt > 0;
             all_ok &= good;
-            line += &format!(" | b{}: n={} max={:.2e} tail={:.2e} onlyRef={} onlyNative={}", rb, cnt, maxd, maxd_tail, only_r, only_n);
+            line += &format!(
+                " | b{}: n={} max={:.2e} tail={:.2e} onlyRef={} onlyNative={}",
+                rb, cnt, maxd, maxd_tail, only_r, only_n
+            );
         }
         if all_ok {
             exact += 1;
@@ -514,7 +885,10 @@ fn history_csv_formats() {
     let b = parse_csv(mt5).unwrap();
     assert_eq!(b.len(), 3);
     assert_eq!(b[0].time, 1704153600);
-    assert_eq!((b[1].open, b[1].high, b[1].tick_volume, b[1].spread), (1.104, 1.1045, 98, 6));
+    assert_eq!(
+        (b[1].open, b[1].high, b[1].tick_volume, b[1].spread),
+        (1.104, 1.1045, 98, 6)
+    );
     assert_eq!(detect_timeframe(&b), Some(Timeframe::M1));
     // MetaTrader 4 / generic without header
     let mt4 = "2024.01.02,10:00,2063.10,2065.00,2062.00,2064.50,1500\n2024.01.02,11:00,2064.50,2066.00,2060.00,2061.20,1300\n2024.01.02,12:00,2061.20,2062.00,2058.00,2059.00,900\n";
@@ -531,7 +905,9 @@ fn history_csv_formats() {
     let dk = "Gmt time;Open;High;Low;Close;Volume\n02.01.2024 00:00:00.000;1.1;1.2;1.0;1.15;5\n";
     assert_eq!(parse_csv(dk).unwrap()[0].time, 1704153600);
     // file names
-    let (s, t) = name_hints(std::path::Path::new("/x/EURUSD_M1_202401020000_202411221759.csv"));
+    let (s, t) = name_hints(std::path::Path::new(
+        "/x/EURUSD_M1_202401020000_202411221759.csv",
+    ));
     assert_eq!((s.as_deref(), t), (Some("EURUSD"), Some(Timeframe::M1)));
     // weeks start on Sunday, months on the 1st
     assert_eq!(bar_open_time(Timeframe::W1, 1704153600), 1703980800); // Tue 2024-01-02 -> Sun 2023-12-31
@@ -539,7 +915,16 @@ fn history_csv_formats() {
     let h1 = parse_csv(mt4).unwrap();
     let d1 = aggregate(&h1, Timeframe::D1);
     assert_eq!(d1.len(), 1);
-    assert_eq!((d1[0].open, d1[0].high, d1[0].low, d1[0].close, d1[0].tick_volume), (2063.10, 2066.0, 2058.0, 2059.0, 3700));
+    assert_eq!(
+        (
+            d1[0].open,
+            d1[0].high,
+            d1[0].low,
+            d1[0].close,
+            d1[0].tick_volume
+        ),
+        (2063.10, 2066.0, 2058.0, 2059.0, 3700)
+    );
 }
 
 /// The export script for MetaTrader 5 compiles and runs here too, and what it writes
@@ -549,30 +934,63 @@ fn export_script_round_trip() {
     let dir = std::env::temp_dir().join(format!("rt_export_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::env::set_var("RUST_TERMINAL_DATA", &dir);
-    let prog = Rc::new(compile("RustTerminal_Export.mq5", crate::history::EXPORT_SCRIPT, &no_loader).unwrap_or_else(|e| panic!("{:?}", e)));
+    let prog = Rc::new(
+        compile(
+            "RustTerminal_Export.mq5",
+            crate::history::EXPORT_SCRIPT,
+            &no_loader,
+        )
+        .unwrap_or_else(|e| panic!("{:?}", e)),
+    );
     let mut m = Market::new_simulated();
     let bars = m.bars(0, Timeframe::H1).to_vec();
     let spec = m.symbols[0].spec.clone();
     let mut inputs = HashMap::new();
     inputs.insert("InpTimeframe".to_string(), "PERIOD_H1".to_string());
     inputs.insert("InpDays".to_string(), "30".to_string());
-    let mut run = TestRun::new(prog.clone(), spec, Timeframe::H1, bars.clone(), TickMode::OpenPrices, 10000.0, 100, &inputs, Box::new(|n| Err(format!("no {}", n))));
+    let mut run = TestRun::new(
+        prog.clone(),
+        spec,
+        Timeframe::H1,
+        bars.clone(),
+        TickMode::OpenPrices,
+        10000.0,
+        100,
+        &inputs,
+        Box::new(|n| Err(format!("no {}", n))),
+    );
     run.host.view = bars.clone();
-    run.inst.call_event("OnStart", vec![], &mut run.host).unwrap_or_else(|e| panic!("{}", run.inst.fmt_err(&e)));
+    run.inst
+        .call_event("OnStart", vec![], &mut run.host)
+        .unwrap_or_else(|e| panic!("{}", run.inst.fmt_err(&e)));
     let out = dir.join("Common/Files/RustTerminal");
     let csv = out.join("EURUSD_H1.csv");
     assert!(csv.exists(), "log: {:?}", run.host.log);
     let imported = crate::history::import_file(&csv, None, None).unwrap();
-    assert_eq!((imported.symbol.as_str(), imported.tf), ("EURUSD", Timeframe::H1));
+    assert_eq!(
+        (imported.symbol.as_str(), imported.tf),
+        ("EURUSD", Timeframe::H1)
+    );
     let back = crate::history::load("EURUSD", Timeframe::H1).unwrap();
     // every exported bar equals the original bar with the same time
     assert!(back.len() > 50);
     for got in &back {
-        let orig = bars.iter().find(|b| b.time == got.time).expect("exported bar exists");
-        assert_eq!((got.open, got.high, got.low, got.close, got.tick_volume), (orig.open, orig.high, orig.low, orig.close, orig.tick_volume));
+        let orig = bars
+            .iter()
+            .find(|b| b.time == got.time)
+            .expect("exported bar exists");
+        assert_eq!(
+            (got.open, got.high, got.low, got.close, got.tick_volume),
+            (orig.open, orig.high, orig.low, orig.close, orig.tick_volume)
+        );
     }
-    let syms = crate::history::parse_symbols_csv(&std::fs::read_to_string(out.join("symbols.csv")).unwrap());
-    assert_eq!(syms.first().map(|s| (s.name.as_str(), s.digits)), Some(("EURUSD", 5)));
+    let syms = crate::history::parse_symbols_csv(
+        &std::fs::read_to_string(out.join("symbols.csv")).unwrap(),
+    );
+    assert_eq!(
+        syms.first().map(|s| (s.name.as_str(), s.digits)),
+        Some(("EURUSD", 5))
+    );
     std::env::remove_var("RUST_TERMINAL_DATA");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -609,13 +1027,35 @@ void OnDeinit(const int reason) { Print("ticks=", ticks); }
     for i in 0..6000i64 {
         let o = p;
         p += ((i * 7919 % 13) as f64 - 6.0) * 0.00003;
-        minutes.push(crate::market::Bar { time: start + i * 60, open: o, high: o.max(p) + 0.00005, low: o.min(p) - 0.00005, close: p, tick_volume: 10, spread: 10 });
+        minutes.push(crate::market::Bar {
+            time: start + i * 60,
+            open: o,
+            high: o.max(p) + 0.00005,
+            low: o.min(p) - 0.00005,
+            close: p,
+            tick_volume: 10,
+            spread: 10,
+        });
     }
-    let mut run = TestRun::with_minutes(prog, spec, Timeframe::H1, minutes, TickMode::OhlcPoints, 10000.0, 100, &HashMap::new(), Box::new(|n| Err(format!("no {}", n))));
+    let mut run = TestRun::with_minutes(
+        prog,
+        spec,
+        Timeframe::H1,
+        minutes,
+        TickMode::OhlcPoints,
+        10000.0,
+        100,
+        &HashMap::new(),
+        Box::new(|n| Err(format!("no {}", n))),
+    );
     while !run.step(50) {}
     assert!(run.error.is_none(), "{:?}", run.error);
     let log = run.host.log.join("\n");
-    assert!(!log.contains("no M5 data") && !log.contains("no M1 data"), "{}", log);
+    assert!(
+        !log.contains("no M5 data") && !log.contains("no M1 data"),
+        "{}",
+        log
+    );
     // 100 H1 bars of warm-up are skipped by the tester (25 here); the rest tick 4x per minute
     assert!(run.ticks > 4 * 4000, "ticks {}", run.ticks);
     assert!(run.host.account.deals.len() >= 2, "{}", log);
@@ -636,13 +1076,23 @@ fn live_feed() {
         let ticked = m.update();
         if ticked.contains(&i) && m.symbols[i].source == crate::market::Source::Live {
             quotes += 1;
-            println!("BTCUSD bid {} ask {} ({})", m.symbols[i].bid, m.symbols[i].ask, m.feed_status);
+            println!(
+                "BTCUSD bid {} ask {} ({})",
+                m.symbols[i].bid, m.symbols[i].ask, m.feed_status
+            );
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
     assert!(quotes >= 1, "status: {}", m.feed_status);
     let h1 = m.bars(i, Timeframe::H1).to_vec();
     let d1 = m.bars(i, Timeframe::D1).to_vec();
-    println!("simulated start {} -> live {}, H1 bars {}, D1 bars {}, last H1 {:?}", sim_price, m.symbols[i].bid, h1.len(), d1.len(), h1.last());
+    println!(
+        "simulated start {} -> live {}, H1 bars {}, D1 bars {}, last H1 {:?}",
+        sim_price,
+        m.symbols[i].bid,
+        h1.len(),
+        d1.len(),
+        h1.last()
+    );
     assert!(h1.len() >= 500 && d1.len() >= 500);
 }

@@ -47,7 +47,15 @@ impl ExtParams {
 }
 
 fn nan_to_empty(v: Vec<f64>) -> Vec<f64> {
-    v.into_iter().map(|x| if x.is_nan() || !x.is_finite() { EMPTY } else { x }).collect()
+    v.into_iter()
+        .map(|x| {
+            if x.is_nan() || !x.is_finite() {
+                EMPTY
+            } else {
+                x
+            }
+        })
+        .collect()
 }
 
 fn ema_from(src: &[f64], p: usize) -> Vec<f64> {
@@ -156,7 +164,10 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
         // iMFI(period, volume)
         ExtKind::Mfi => {
             let pp = p.i(0, 14).max(1) as usize;
-            let tp: Vec<f64> = bars.iter().map(|b| (b.high + b.low + b.close) / 3.0).collect();
+            let tp: Vec<f64> = bars
+                .iter()
+                .map(|b| (b.high + b.low + b.close) / 3.0)
+                .collect();
             let mut v = vec![nan; n];
             for i in pp..n {
                 let (mut pos, mut neg) = (0.0, 0.0);
@@ -168,7 +179,11 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                         neg += flow;
                     }
                 }
-                v[i] = if neg != 0.0 { 100.0 - 100.0 / (1.0 + pos / neg) } else { 100.0 };
+                v[i] = if neg != 0.0 {
+                    100.0 - 100.0 / (1.0 + pos / neg)
+                } else {
+                    100.0
+                };
             }
             vec![v]
         }
@@ -235,8 +250,16 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
             let mut mx = vec![0.0; n];
             let mut mn = vec![0.0; n];
             for i in 1..n {
-                mx[i] = if bars[i].high > bars[i - 1].high { bars[i].high - bars[i - 1].high } else { 0.0 };
-                mn[i] = if bars[i].low < bars[i - 1].low { bars[i - 1].low - bars[i].low } else { 0.0 };
+                mx[i] = if bars[i].high > bars[i - 1].high {
+                    bars[i].high - bars[i - 1].high
+                } else {
+                    0.0
+                };
+                mn[i] = if bars[i].low < bars[i - 1].low {
+                    bars[i - 1].low - bars[i].low
+                } else {
+                    0.0
+                };
             }
             let smx = ma(&mx[1..].to_vec(), pp, 0);
             let smn = ma(&mn[1..].to_vec(), pp, 0);
@@ -264,7 +287,13 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
             let mut c = vec![EMPTY; n];
             for i in 0..n {
                 let vo = vol(&bars[i]);
-                v[i] = if vo > 0.0 { (bars[i].high - bars[i].low) / vo } else if i > 0 { v[i - 1] } else { 0.0 };
+                v[i] = if vo > 0.0 {
+                    (bars[i].high - bars[i].low) / vo
+                } else if i > 0 {
+                    v[i - 1]
+                } else {
+                    0.0
+                };
                 if i > 0 {
                     let mfi_up = v[i] > v[i - 1];
                     let vol_up = vo > vol(&bars[i - 1]);
@@ -345,9 +374,17 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                     let n1 = (h1 - l1) / pp as f64;
                     let n2 = (h2 - l2) / pp as f64;
                     let n3 = (h3 - l3) / (2 * pp) as f64;
-                    let d = if n1 + n2 > 0.0 && n3 > 0.0 { ((n1 + n2).ln() - n3.ln()) / 2f64.ln() } else { 1.0 };
+                    let d = if n1 + n2 > 0.0 && n3 > 0.0 {
+                        ((n1 + n2).ln() - n3.ln()) / 2f64.ln()
+                    } else {
+                        1.0
+                    };
                     let alpha = (-4.6 * (d - 1.0)).exp().clamp(0.01, 1.0);
-                    let prev = if v[i - 1].is_finite() { v[i - 1] } else { pr[i - 1] };
+                    let prev = if v[i - 1].is_finite() {
+                        v[i - 1]
+                    } else {
+                        pr[i - 1]
+                    };
                     v[i] = alpha * pr[i] + (1.0 - alpha) * prev;
                 }
             }
@@ -382,10 +419,18 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                         pdm_s = pdm_s - pdm_s / pp as f64 + pdm;
                         mdm_s = mdm_s - mdm_s / pp as f64 + mdm;
                     }
-                    let (pd, md) = if tr_s != 0.0 { (100.0 * pdm_s / tr_s, 100.0 * mdm_s / tr_s) } else { (0.0, 0.0) };
+                    let (pd, md) = if tr_s != 0.0 {
+                        (100.0 * pdm_s / tr_s, 100.0 * mdm_s / tr_s)
+                    } else {
+                        (0.0, 0.0)
+                    };
                     pdi[i] = pd;
                     mdi[i] = md;
-                    let dx = if pd + md != 0.0 { 100.0 * (pd - md).abs() / (pd + md) } else { 0.0 };
+                    let dx = if pd + md != 0.0 {
+                        100.0 * (pd - md).abs() / (pd + md)
+                    } else {
+                        0.0
+                    };
                     if prev_adx.is_nan() {
                         dx_hist.push(dx);
                         if dx_hist.len() == pp {
@@ -419,7 +464,11 @@ pub fn compute(kind: ExtKind, p: &ExtParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                             dn -= d;
                         }
                     }
-                    let cmo = if up + dn != 0.0 { ((up - dn) / (up + dn)).abs() } else { 0.0 };
+                    let cmo = if up + dn != 0.0 {
+                        ((up - dn) / (up + dn)).abs()
+                    } else {
+                        0.0
+                    };
                     v[i] = pr[i] * alpha * cmo + v[i - 1] * (1.0 - alpha * cmo);
                 }
             }
@@ -479,6 +528,25 @@ pub fn double_params(kind: ExtKind) -> &'static [usize] {
 
 pub const FUNCTIONS: [&str; 22] = [
     "iADXWilder",
-    "iDEMA", "iTEMA", "iTriX", "iOsMA", "iAO", "iAC", "iBearsPower", "iBullsPower", "iForce", "iMFI", "iOBV", "iRVI", "iStdDev",
-    "iDeMarker", "iChaikin", "iAD", "iBWMFI", "iGator", "iAMA", "iFrAMA", "iVIDyA",
+    "iDEMA",
+    "iTEMA",
+    "iTriX",
+    "iOsMA",
+    "iAO",
+    "iAC",
+    "iBearsPower",
+    "iBullsPower",
+    "iForce",
+    "iMFI",
+    "iOBV",
+    "iRVI",
+    "iStdDev",
+    "iDeMarker",
+    "iChaikin",
+    "iAD",
+    "iBWMFI",
+    "iGator",
+    "iAMA",
+    "iFrAMA",
+    "iVIDyA",
 ];

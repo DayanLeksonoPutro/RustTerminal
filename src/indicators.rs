@@ -81,7 +81,12 @@ impl IndKind {
     }
     pub fn group(self) -> &'static str {
         match self {
-            IndKind::MovingAverage | IndKind::Bands | IndKind::Envelopes | IndKind::Ichimoku | IndKind::Sar | IndKind::Adx => "Trend",
+            IndKind::MovingAverage
+            | IndKind::Bands
+            | IndKind::Envelopes
+            | IndKind::Ichimoku
+            | IndKind::Sar
+            | IndKind::Adx => "Trend",
             IndKind::Alligator | IndKind::Fractals => "Bill Williams",
             IndKind::Volumes => "Volumes",
             _ => "Oscillators",
@@ -124,18 +129,61 @@ pub struct IndParams {
 
 impl IndParams {
     pub fn defaults(kind: IndKind) -> IndParams {
-        let base = IndParams { p1: 14, p2: 0, p3: 0, shift: 0, method: 0, price: 1, f1: 0.0, f2: 0.0 };
+        let base = IndParams {
+            p1: 14,
+            p2: 0,
+            p3: 0,
+            shift: 0,
+            method: 0,
+            price: 1,
+            f1: 0.0,
+            f2: 0.0,
+        };
         match kind {
             // MA period 10: not found in the code, estimated
             IndKind::MovingAverage => IndParams { p1: 10, ..base },
-            IndKind::Bands => IndParams { p1: 20, f1: 2.0, ..base },
-            IndKind::Envelopes => IndParams { p1: 14, f1: 0.1, ..base },
-            IndKind::Ichimoku => IndParams { p1: 9, p2: 26, p3: 52, ..base },
-            IndKind::Sar => IndParams { f1: 0.02, f2: 0.2, ..base },
-            IndKind::Alligator => IndParams { p1: 13, p2: 8, p3: 5, method: 2, price: 5, ..base },
+            IndKind::Bands => IndParams {
+                p1: 20,
+                f1: 2.0,
+                ..base
+            },
+            IndKind::Envelopes => IndParams {
+                p1: 14,
+                f1: 0.1,
+                ..base
+            },
+            IndKind::Ichimoku => IndParams {
+                p1: 9,
+                p2: 26,
+                p3: 52,
+                ..base
+            },
+            IndKind::Sar => IndParams {
+                f1: 0.02,
+                f2: 0.2,
+                ..base
+            },
+            IndKind::Alligator => IndParams {
+                p1: 13,
+                p2: 8,
+                p3: 5,
+                method: 2,
+                price: 5,
+                ..base
+            },
             IndKind::Fractals => base,
-            IndKind::Macd => IndParams { p1: 12, p2: 26, p3: 9, ..base },
-            IndKind::Stochastic => IndParams { p1: 5, p2: 3, p3: 3, ..base },
+            IndKind::Macd => IndParams {
+                p1: 12,
+                p2: 26,
+                p3: 9,
+                ..base
+            },
+            IndKind::Stochastic => IndParams {
+                p1: 5,
+                p2: 3,
+                p3: 3,
+                ..base
+            },
             IndKind::Volumes => base,
             _ => base,
         }
@@ -198,7 +246,11 @@ impl LineSpec {
 }
 
 pub fn bgr(c: u32) -> Color32 {
-    Color32::from_rgb((c & 0xff) as u8, ((c >> 8) & 0xff) as u8, ((c >> 16) & 0xff) as u8)
+    Color32::from_rgb(
+        (c & 0xff) as u8,
+        ((c >> 8) & 0xff) as u8,
+        ((c >> 16) & 0xff) as u8,
+    )
 }
 
 pub const RED: Color32 = Color32::from_rgb(255, 0, 0);
@@ -317,7 +369,11 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
             for i in 0..n {
                 if i + 1 >= p1 && !mid[i].is_nan() {
                     let mean = mid[i];
-                    let var: f64 = price[i + 1 - p1..=i].iter().map(|x| (x - mean).powi(2)).sum::<f64>() / p1 as f64;
+                    let var: f64 = price[i + 1 - p1..=i]
+                        .iter()
+                        .map(|x| (x - mean).powi(2))
+                        .sum::<f64>()
+                        / p1 as f64;
                     let sd = var.sqrt();
                     up[i] = mean + pr.f1 * sd;
                     dn[i] = mean - pr.f1 * sd;
@@ -338,7 +394,13 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
             let m = ma(&price, p1, pr.method);
             let up: Vec<f64> = m.iter().map(|v| v * (1.0 + pr.f1 / 100.0)).collect();
             let dn: Vec<f64> = m.iter().map(|v| v * (1.0 - pr.f1 / 100.0)).collect();
-            (vec![up, dn], vec![LineSpec::new("Upper", BLUE).shift(pr.shift), LineSpec::new("Lower", RED).shift(pr.shift)])
+            (
+                vec![up, dn],
+                vec![
+                    LineSpec::new("Upper", BLUE).shift(pr.shift),
+                    LineSpec::new("Lower", RED).shift(pr.shift),
+                ],
+            )
         }
         IndKind::Ichimoku => {
             let mut tenkan = vec![EMPTY; n];
@@ -367,8 +429,12 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                 vec![
                     LineSpec::new("Tenkan-sen", RED),
                     LineSpec::new("Kijun-sen", BLUE),
-                    LineSpec::new("Senkou Span A", Color32::from_rgb(244, 164, 96)).style(LineStyle::Dot).shift(k),
-                    LineSpec::new("Senkou Span B", Color32::from_rgb(216, 191, 216)).style(LineStyle::Dot).shift(k),
+                    LineSpec::new("Senkou Span A", Color32::from_rgb(244, 164, 96))
+                        .style(LineStyle::Dot)
+                        .shift(k),
+                    LineSpec::new("Senkou Span B", Color32::from_rgb(216, 191, 216))
+                        .style(LineStyle::Dot)
+                        .shift(k),
                     LineSpec::new("Chikou Span", LIME).shift(-k),
                 ],
             )
@@ -383,7 +449,9 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                 for i in 1..n {
                     s += af * (ep - s);
                     if long {
-                        s = s.min(low[i - 1]).min(if i >= 2 { low[i - 2] } else { low[i - 1] });
+                        s = s
+                            .min(low[i - 1])
+                            .min(if i >= 2 { low[i - 2] } else { low[i - 1] });
                         if low[i] < s {
                             long = false;
                             s = ep;
@@ -394,7 +462,9 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                             af = (af + pr.f1).min(pr.f2);
                         }
                     } else {
-                        s = s.max(high[i - 1]).max(if i >= 2 { high[i - 2] } else { high[i - 1] });
+                        s = s
+                            .max(high[i - 1])
+                            .max(if i >= 2 { high[i - 2] } else { high[i - 1] });
                         if high[i] > s {
                             long = true;
                             s = ep;
@@ -408,12 +478,19 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                     sar[i] = s;
                 }
             }
-            (vec![sar], vec![LineSpec::new("SAR", LIME).draw(DrawKind::Dots)])
+            (
+                vec![sar],
+                vec![LineSpec::new("SAR", LIME).draw(DrawKind::Dots)],
+            )
         }
         IndKind::Alligator => {
             let med: Vec<f64> = bars.iter().map(|b| applied_price(b, pr.price)).collect();
             (
-                vec![ma(&med, p1, pr.method), ma(&med, p2, pr.method), ma(&med, p3, pr.method)],
+                vec![
+                    ma(&med, p1, pr.method),
+                    ma(&med, p2, pr.method),
+                    ma(&med, p3, pr.method),
+                ],
                 vec![
                     LineSpec::new("Jaws", BLUE).shift(8),
                     LineSpec::new("Teeth", RED).shift(5),
@@ -425,10 +502,18 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
             let mut up = vec![EMPTY; n];
             let mut dn = vec![EMPTY; n];
             for i in 2..n.saturating_sub(2) {
-                if high[i] > high[i - 1] && high[i] > high[i - 2] && high[i] >= high[i + 1] && high[i] >= high[i + 2] {
+                if high[i] > high[i - 1]
+                    && high[i] > high[i - 2]
+                    && high[i] >= high[i + 1]
+                    && high[i] >= high[i + 2]
+                {
                     up[i] = high[i];
                 }
-                if low[i] < low[i - 1] && low[i] < low[i - 2] && low[i] <= low[i + 1] && low[i] <= low[i + 2] {
+                if low[i] < low[i - 1]
+                    && low[i] < low[i - 2]
+                    && low[i] <= low[i + 1]
+                    && low[i] <= low[i + 2]
+                {
                     dn[i] = low[i];
                 }
             }
@@ -444,7 +529,13 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
             let fast = ma(&price, p1, 1);
             let slow = ma(&price, p2, 1);
             let macd: Vec<f64> = (0..n)
-                .map(|i| if i + 1 >= p2 { fast[i] - slow[i] } else { EMPTY })
+                .map(|i| {
+                    if i + 1 >= p2 {
+                        fast[i] - slow[i]
+                    } else {
+                        EMPTY
+                    }
+                })
                 .collect();
             let signal = ma(&macd, p3, 0);
             levels.push(0.0);
@@ -464,21 +555,36 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                 let mut loss = 0.0;
                 for i in 1..=p1 {
                     let d = price[i] - price[i - 1];
-                    if d > 0.0 { gain += d } else { loss -= d }
+                    if d > 0.0 {
+                        gain += d
+                    } else {
+                        loss -= d
+                    }
                 }
                 gain /= p1 as f64;
                 loss /= p1 as f64;
-                out[p1] = if loss == 0.0 { 100.0 } else { 100.0 - 100.0 / (1.0 + gain / loss) };
+                out[p1] = if loss == 0.0 {
+                    100.0
+                } else {
+                    100.0 - 100.0 / (1.0 + gain / loss)
+                };
                 for i in p1 + 1..n {
                     let d = price[i] - price[i - 1];
                     gain = (gain * (p1 as f64 - 1.0) + d.max(0.0)) / p1 as f64;
                     loss = (loss * (p1 as f64 - 1.0) + (-d).max(0.0)) / p1 as f64;
-                    out[i] = if loss == 0.0 { 100.0 } else { 100.0 - 100.0 / (1.0 + gain / loss) };
+                    out[i] = if loss == 0.0 {
+                        100.0
+                    } else {
+                        100.0 - 100.0 / (1.0 + gain / loss)
+                    };
                 }
             }
             levels = vec![30.0, 70.0];
             fixed_range = Some((0.0, 100.0));
-            (vec![out], vec![LineSpec::new(&format!("RSI({})", p1), DODGER)])
+            (
+                vec![out],
+                vec![LineSpec::new(&format!("RSI({})", p1), DODGER)],
+            )
         }
         IndKind::Stochastic => {
             let mut k = vec![EMPTY; n];
@@ -501,7 +607,10 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
             fixed_range = Some((0.0, 100.0));
             (
                 vec![k, d],
-                vec![LineSpec::new("Main", SEAGREEN), LineSpec::new("Signal", RED).style(LineStyle::Dash)],
+                vec![
+                    LineSpec::new("Main", SEAGREEN),
+                    LineSpec::new("Signal", RED).style(LineStyle::Dash),
+                ],
             )
         }
         IndKind::Atr => {
@@ -510,31 +619,59 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                     if i == 0 {
                         high[0] - low[0]
                     } else {
-                        (high[i] - low[i]).max((high[i] - close[i - 1]).abs()).max((low[i] - close[i - 1]).abs())
+                        (high[i] - low[i])
+                            .max((high[i] - close[i - 1]).abs())
+                            .max((low[i] - close[i - 1]).abs())
                     }
                 })
                 .collect();
-            (vec![ma(&tr, p1, 0)], vec![LineSpec::new(&format!("ATR({})", p1), DODGER)])
+            (
+                vec![ma(&tr, p1, 0)],
+                vec![LineSpec::new(&format!("ATR({})", p1), DODGER)],
+            )
         }
         IndKind::Cci => {
-            let tp: Vec<f64> = bars.iter().map(|b| applied_price(b, if pr.price == 1 { 6 } else { pr.price })).collect();
+            let tp: Vec<f64> = bars
+                .iter()
+                .map(|b| applied_price(b, if pr.price == 1 { 6 } else { pr.price }))
+                .collect();
             let sma = ma(&tp, p1, 0);
             let mut out = vec![EMPTY; n];
             for i in 0..n {
                 if i + 1 >= p1 {
-                    let md: f64 = tp[i + 1 - p1..=i].iter().map(|x| (x - sma[i]).abs()).sum::<f64>() / p1 as f64;
-                    out[i] = if md == 0.0 { 0.0 } else { (tp[i] - sma[i]) / (0.015 * md) };
+                    let md: f64 = tp[i + 1 - p1..=i]
+                        .iter()
+                        .map(|x| (x - sma[i]).abs())
+                        .sum::<f64>()
+                        / p1 as f64;
+                    out[i] = if md == 0.0 {
+                        0.0
+                    } else {
+                        (tp[i] - sma[i]) / (0.015 * md)
+                    };
                 }
             }
             levels = vec![-100.0, 100.0];
-            (vec![out], vec![LineSpec::new(&format!("CCI({})", p1), SEAGREEN)])
+            (
+                vec![out],
+                vec![LineSpec::new(&format!("CCI({})", p1), SEAGREEN)],
+            )
         }
         IndKind::Momentum => {
             let out: Vec<f64> = (0..n)
-                .map(|i| if i >= p1 && price[i - p1] != 0.0 { price[i] / price[i - p1] * 100.0 } else { EMPTY })
+                .map(|i| {
+                    if i >= p1 && price[i - p1] != 0.0 {
+                        price[i] / price[i - p1] * 100.0
+                    } else {
+                        EMPTY
+                    }
+                })
                 .collect();
             levels = vec![100.0];
-            (vec![out], vec![LineSpec::new(&format!("Momentum({})", p1), DODGER)])
+            (
+                vec![out],
+                vec![LineSpec::new(&format!("Momentum({})", p1), DODGER)],
+            )
         }
         IndKind::Adx => {
             let mut pdm = vec![0.0; n];
@@ -545,16 +682,40 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                 let dn = low[i - 1] - low[i];
                 pdm[i] = if up > dn && up > 0.0 { up } else { 0.0 };
                 mdm[i] = if dn > up && dn > 0.0 { dn } else { 0.0 };
-                tr[i] = (high[i] - low[i]).max((high[i] - close[i - 1]).abs()).max((low[i] - close[i - 1]).abs());
+                tr[i] = (high[i] - low[i])
+                    .max((high[i] - close[i - 1]).abs())
+                    .max((low[i] - close[i - 1]).abs());
             }
-            let pdi_raw: Vec<f64> = (0..n).map(|i| if tr[i] > 0.0 { 100.0 * pdm[i] / tr[i] } else { 0.0 }).collect();
-            let mdi_raw: Vec<f64> = (0..n).map(|i| if tr[i] > 0.0 { 100.0 * mdm[i] / tr[i] } else { 0.0 }).collect();
+            let pdi_raw: Vec<f64> = (0..n)
+                .map(|i| {
+                    if tr[i] > 0.0 {
+                        100.0 * pdm[i] / tr[i]
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            let mdi_raw: Vec<f64> = (0..n)
+                .map(|i| {
+                    if tr[i] > 0.0 {
+                        100.0 * mdm[i] / tr[i]
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
             let pdi = ma(&pdi_raw, p1, 1);
             let mdi = ma(&mdi_raw, p1, 1);
             let dx: Vec<f64> = (0..n)
                 .map(|i| {
                     let s = pdi[i] + mdi[i];
-                    if s.is_nan() { EMPTY } else if s == 0.0 { 0.0 } else { 100.0 * (pdi[i] - mdi[i]).abs() / s }
+                    if s.is_nan() {
+                        EMPTY
+                    } else if s == 0.0 {
+                        0.0
+                    } else {
+                        100.0 * (pdi[i] - mdi[i]).abs() / s
+                    }
                 })
                 .collect();
             let adx = ma(&dx, p1, 1);
@@ -573,7 +734,11 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                     if i + 1 >= p1 {
                         let hh = highest(&high, i, p1);
                         let ll = lowest(&low, i, p1);
-                        if hh == ll { 0.0 } else { -100.0 * (hh - close[i]) / (hh - ll) }
+                        if hh == ll {
+                            0.0
+                        } else {
+                            -100.0 * (hh - close[i]) / (hh - ll)
+                        }
                     } else {
                         EMPTY
                     }
@@ -581,19 +746,30 @@ pub fn compute(kind: IndKind, pr: &IndParams, bars: &[Bar]) -> IndOutput {
                 .collect();
             levels = vec![-20.0, -80.0];
             fixed_range = Some((-100.0, 0.0));
-            (vec![out], vec![LineSpec::new(&format!("%R({})", p1), DODGER)])
+            (
+                vec![out],
+                vec![LineSpec::new(&format!("%R({})", p1), DODGER)],
+            )
         }
         IndKind::Volumes => {
             let v: Vec<f64> = bars.iter().map(|b| b.tick_volume as f64).collect();
-            let c: Vec<f64> = (0..n).map(|i| if i > 0 && v[i] < v[i - 1] { 1.0 } else { 0.0 }).collect();
-            let mut spec = LineSpec::new("Volumes", Color32::from_rgb(50, 205, 50)).draw(DrawKind::ColorHistogram);
+            let c: Vec<f64> = (0..n)
+                .map(|i| if i > 0 && v[i] < v[i - 1] { 1.0 } else { 0.0 })
+                .collect();
+            let mut spec = LineSpec::new("Volumes", Color32::from_rgb(50, 205, 50))
+                .draw(DrawKind::ColorHistogram);
             spec.color2 = RED;
             spec.width = 2.0;
             fixed_range = None;
             (vec![v, c], vec![spec])
         }
     };
-    IndOutput { buffers, lines, levels, fixed_range }
+    IndOutput {
+        buffers,
+        lines,
+        levels,
+        fixed_range,
+    }
 }
 
 /// The buffers a script sees through CopyBuffer for a built-in indicator handle.

@@ -92,7 +92,11 @@ impl Value {
             Value::Bool(b) => *b as i64,
             Value::Struct(s) => Rc::as_ptr(s) as usize as i64,
             Value::Obj(o) => Rc::as_ptr(o) as usize as i64,
-            Value::Str(s) => s.trim().parse::<i64>().or_else(|_| s.trim().parse::<f64>().map(|f| f as i64)).unwrap_or(0),
+            Value::Str(s) => s
+                .trim()
+                .parse::<i64>()
+                .or_else(|_| s.trim().parse::<f64>().map(|f| f as i64))
+                .unwrap_or(0),
             _ => 0,
         }
     }
@@ -161,12 +165,43 @@ type R<T> = Result<T, RtError>;
 
 /// A trading request a program sends through its host.
 pub enum TradeOp {
-    Market { symbol: String, buy: bool, volume: f64, sl: f64, tp: f64, magic: i64, comment: String },
-    Close { ticket: u64, volume: Option<f64> },
-    Modify { ticket: u64, sl: f64, tp: f64 },
-    Pending { symbol: String, typ: i64, volume: f64, price: f64, sl: f64, tp: f64, magic: i64, comment: String },
-    Delete { ticket: u64 },
-    ModifyOrder { ticket: u64, price: f64, sl: f64, tp: f64 },
+    Market {
+        symbol: String,
+        buy: bool,
+        volume: f64,
+        sl: f64,
+        tp: f64,
+        magic: i64,
+        comment: String,
+    },
+    Close {
+        ticket: u64,
+        volume: Option<f64>,
+    },
+    Modify {
+        ticket: u64,
+        sl: f64,
+        tp: f64,
+    },
+    Pending {
+        symbol: String,
+        typ: i64,
+        volume: f64,
+        price: f64,
+        sl: f64,
+        tp: f64,
+        magic: i64,
+        comment: String,
+    },
+    Delete {
+        ticket: u64,
+    },
+    ModifyOrder {
+        ticket: u64,
+        price: f64,
+        sl: f64,
+        tp: f64,
+    },
 }
 
 /// What the terminal (or the strategy tester) provides to a running program.
@@ -210,9 +245,23 @@ pub struct PlotRt {
 }
 
 pub enum Handle {
-    Builtin { kind: IndKind, params: IndParams, symbol: String, tf: Timeframe },
-    Ext { kind: crate::indicators_ext::ExtKind, params: crate::indicators_ext::ExtParams, symbol: String, tf: Timeframe },
-    Custom { inst: Option<Box<Instance>>, symbol: String, tf: Timeframe },
+    Builtin {
+        kind: IndKind,
+        params: IndParams,
+        symbol: String,
+        tf: Timeframe,
+    },
+    Ext {
+        kind: crate::indicators_ext::ExtKind,
+        params: crate::indicators_ext::ExtParams,
+        symbol: String,
+        tf: Timeframe,
+    },
+    Custom {
+        inst: Option<Box<Instance>>,
+        symbol: String,
+        tf: Timeframe,
+    },
 }
 
 pub struct PriceArrays {
@@ -228,7 +277,13 @@ pub struct PriceArrays {
 }
 
 pub fn new_array(elem: Ty, data: Vec<Value>) -> ArrRef {
-    Rc::new(RefCell::new(Array { data, elem, series: false, inner: vec![], dynamic: true }))
+    Rc::new(RefCell::new(Array {
+        data,
+        elem,
+        series: false,
+        inner: vec![],
+        dynamic: true,
+    }))
 }
 
 pub struct Instance {
@@ -273,18 +328,39 @@ pub struct Instance {
 }
 
 impl Instance {
-    pub fn new(prog: Rc<Program>, symbol: &str, tf: Timeframe, input_overrides: &HashMap<String, String>) -> Self {
+    pub fn new(
+        prog: Rc<Program>,
+        symbol: &str,
+        tf: Timeframe,
+        input_overrides: &HashMap<String, String>,
+    ) -> Self {
         let name = prog.file_name.trim_end_matches(".mq5").to_string();
         let mut plots = vec![];
-        let nplots = prog.props.plots.max(if prog.kind == ProgramKind::Indicator { prog.props.buffers.min(8) } else { 0 });
+        let nplots = prog
+            .props
+            .plots
+            .max(if prog.kind == ProgramKind::Indicator {
+                prog.props.buffers.min(8)
+            } else {
+                0
+            });
         for i in 0..nplots {
             let pp = prog.props.plot.get(&(i + 1)).cloned().unwrap_or_default();
             plots.push(PlotRt {
-                draw_type: pp.draw_type.unwrap_or(if i < prog.props.plots { 1 } else { 0 }),
-                colors: if pp.colors.is_empty() { vec![default_plot_color(i)] } else { pp.colors.clone() },
+                draw_type: pp
+                    .draw_type
+                    .unwrap_or(if i < prog.props.plots { 1 } else { 0 }),
+                colors: if pp.colors.is_empty() {
+                    vec![default_plot_color(i)]
+                } else {
+                    pp.colors.clone()
+                },
                 width: pp.width.unwrap_or(1),
                 style: pp.style.unwrap_or(0),
-                label: pp.label.clone().unwrap_or_else(|| format!("Plot {}", i + 1)),
+                label: pp
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| format!("Plot {}", i + 1)),
                 empty_value: f64::MAX,
                 draw_begin: 0,
                 shift: 0,
@@ -348,12 +424,24 @@ impl Instance {
     }
 
     fn err(&self, msg: impl Into<String>) -> RtError {
-        RtError { msg: msg.into(), line: self.cur_line, col: self.cur_col, file: self.cur_file, removed: false }
+        RtError {
+            msg: msg.into(),
+            line: self.cur_line,
+            col: self.cur_col,
+            file: self.cur_file,
+            removed: false,
+        }
     }
 
     pub fn fmt_err(&self, e: &RtError) -> String {
         if e.line > 0 {
-            let f = self.prog.files.get(e.file as usize).filter(|_| e.file > 0).map(|s| s.as_str()).unwrap_or(&self.prog.file_name);
+            let f = self
+                .prog
+                .files
+                .get(e.file as usize)
+                .filter(|_| e.file > 0)
+                .map(|s| s.as_str())
+                .unwrap_or(&self.prog.file_name);
             format!("{} in '{}' ({},{})", e.msg, f, e.line, e.col)
         } else {
             e.msg.clone()
@@ -372,9 +460,14 @@ impl Instance {
             Ty::Struct(s) => self.new_struct(*s),
             Ty::Object(s) => {
                 let o = match self.sym(*s) {
-                    "CTrade" => ObjVal::Trade { magic: 0, last: TradeInfo::default() },
+                    "CTrade" => ObjVal::Trade {
+                        magic: 0,
+                        last: TradeInfo::default(),
+                    },
                     "CPositionInfo" => ObjVal::PosInfo { ticket: 0 },
-                    "CSymbolInfo" => ObjVal::SymInfo { name: self.symbol.clone() },
+                    "CSymbolInfo" => ObjVal::SymInfo {
+                        name: self.symbol.clone(),
+                    },
                     "COrderInfo" => ObjVal::OrdInfo { ticket: 0 },
                     _ => ObjVal::AccInfo,
                 };
@@ -397,9 +490,19 @@ impl Instance {
                 let v = if dims.is_empty() {
                     self.default_value(t)
                 } else {
-                    let n0 = dims.first().and_then(|d| d.as_ref()).map(|e| const_dim(e)).unwrap_or(0);
+                    let n0 = dims
+                        .first()
+                        .and_then(|d| d.as_ref())
+                        .map(|e| const_dim(e))
+                        .unwrap_or(0);
                     let data = (0..n0).map(|_| self.default_value(t)).collect();
-                    Value::Arr(Rc::new(RefCell::new(Array { data, elem: t.clone(), series: false, inner: vec![], dynamic: dims[0].is_none() })))
+                    Value::Arr(Rc::new(RefCell::new(Array {
+                        data,
+                        elem: t.clone(),
+                        series: false,
+                        inner: vec![],
+                        dynamic: dims[0].is_none(),
+                    })))
                 };
                 (*n, t.clone(), v)
             })
@@ -415,7 +518,9 @@ impl Instance {
             (Ty::Bool, v) => Value::Bool(v.truthy()),
             (Ty::Str, Value::Str(s)) => Value::Str(s),
             (Ty::Str, v) => Value::str(&v.to_text()),
-            (Ty::Struct(_), Value::Struct(s)) => Value::Struct(Rc::new(RefCell::new(deep_copy_struct(&s.borrow())))),
+            (Ty::Struct(_), Value::Struct(s)) => {
+                Value::Struct(Rc::new(RefCell::new(deep_copy_struct(&s.borrow()))))
+            }
             (Ty::Struct(s), _) => self.new_struct(*s),
             (Ty::Object(_), v @ Value::Obj(_)) => v,
             (Ty::Ptr(_), v @ (Value::Struct(_) | Value::Void)) => v,
@@ -466,10 +571,19 @@ impl Instance {
             Some(t) => t,
             None => return false,
         };
-        let ty = t.borrow().fields.iter().find(|f| f.0 == s).map(|f| f.1.clone());
+        let ty = t
+            .borrow()
+            .fields
+            .iter()
+            .find(|f| f.0 == s)
+            .map(|f| f.1.clone());
         match ty {
             Some(ty) => {
-                let nv = if matches!(v, Value::Arr(_)) { v } else { self.coerce(v, &ty) };
+                let nv = if matches!(v, Value::Arr(_)) {
+                    v
+                } else {
+                    self.coerce(v, &ty)
+                };
                 if let Some(f) = t.borrow_mut().fields.iter_mut().find(|f| f.0 == s) {
                     f.2 = nv;
                 }
@@ -489,7 +603,10 @@ impl Instance {
             }
             return Err(self.err(format!("'{}' - unknown class", self.sym(cls))));
         }
-        let argv = args.iter().map(|a| self.eval(a, host)).collect::<R<Vec<_>>>()?;
+        let argv = args
+            .iter()
+            .map(|a| self.eval(a, host))
+            .collect::<R<Vec<_>>>()?;
         let obj = match self.new_struct(cls) {
             Value::Struct(s) => s,
             _ => return Err(self.err("cannot create object")),
@@ -498,7 +615,13 @@ impl Instance {
         Ok(Value::Struct(obj))
     }
 
-    fn run_ctor(&mut self, cls: Sym, obj: &StructRef, args: Vec<Value>, host: &mut dyn Host) -> R<()> {
+    fn run_ctor(
+        &mut self,
+        cls: Sym,
+        obj: &StructRef,
+        args: Vec<Value>,
+        host: &mut dyn Host,
+    ) -> R<()> {
         let prog = self.prog.clone();
         let info = match prog.classes.get(&cls) {
             Some(i) => i,
@@ -526,8 +649,18 @@ impl Instance {
                         None => self.default_value(&p.ty),
                     },
                 };
-                let v = if p.is_array || p.by_ref { v } else { self.coerce(v, &p.ty) };
-                scope.push((p.name, Rc::new(RefCell::new(Var { ty: p.ty.clone(), v }))));
+                let v = if p.is_array || p.by_ref {
+                    v
+                } else {
+                    self.coerce(v, &p.ty)
+                };
+                scope.push((
+                    p.name,
+                    Rc::new(RefCell::new(Var {
+                        ty: p.ty.clone(),
+                        v,
+                    })),
+                ));
             }
         }
         self.depth += 1;
@@ -540,12 +673,21 @@ impl Instance {
         r
     }
 
-    fn ctor_inner(&mut self, info: &ClassInfo, ctor: Option<&Rc<Func>>, obj: &StructRef, host: &mut dyn Host) -> R<()> {
+    fn ctor_inner(
+        &mut self,
+        info: &ClassInfo,
+        ctor: Option<&Rc<Func>>,
+        obj: &StructRef,
+        host: &mut dyn Host,
+    ) -> R<()> {
         let empty = vec![];
         let init_list = ctor.map(|f| &f.init_list).unwrap_or(&empty);
         if let Some(b) = info.base {
             let bargs = match init_list.iter().find(|(n, _)| *n == b) {
-                Some((_, a)) => a.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?,
+                Some((_, a)) => a
+                    .iter()
+                    .map(|e| self.eval(e, host))
+                    .collect::<R<Vec<_>>>()?,
                 None => vec![],
             };
             self.run_ctor(b, obj, bargs, host)?;
@@ -557,9 +699,21 @@ impl Instance {
             };
             let init = init_list.iter().find(|(n, _)| n == fsym);
             match (init, &fty, &fval) {
-                (Some((_, a)), Ty::Struct(c), Value::Struct(sub)) if self.prog.classes.contains_key(c) => {
-                    let vals = a.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?;
-                    if vals.len() == 1 && matches!(vals[0], Value::Struct(_)) && self.prog.classes.get(c).is_some_and(|ci| !ci.methods.contains_key(c)) {
+                (Some((_, a)), Ty::Struct(c), Value::Struct(sub))
+                    if self.prog.classes.contains_key(c) =>
+                {
+                    let vals = a
+                        .iter()
+                        .map(|e| self.eval(e, host))
+                        .collect::<R<Vec<_>>>()?;
+                    if vals.len() == 1
+                        && matches!(vals[0], Value::Struct(_))
+                        && self
+                            .prog
+                            .classes
+                            .get(c)
+                            .is_some_and(|ci| !ci.methods.contains_key(c))
+                    {
                         self.set_this_field(*fsym, vals[0].clone());
                     } else {
                         let sub = sub.clone();
@@ -601,7 +755,12 @@ impl Instance {
                 None => break,
             };
             let dname = format!("~{}", prog.interner.name(cls));
-            if let Some(f) = prog.interner.get(&dname).and_then(|d| info.methods.get(&d)).and_then(|v| v.first()) {
+            if let Some(f) = prog
+                .interner
+                .get(&dname)
+                .and_then(|d| info.methods.get(&d))
+                .and_then(|v| v.first())
+            {
                 self.call_values_this(f, vec![], Some(obj.clone()), host)?;
             }
             c = info.base;
@@ -634,7 +793,10 @@ impl Instance {
             }
             let arr = self.build_array(&d.ty, &sizes);
             if let Some(Expr::List(items)) = &d.init {
-                let vals: Vec<Value> = items.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?;
+                let vals: Vec<Value> = items
+                    .iter()
+                    .map(|e| self.eval(e, host))
+                    .collect::<R<Vec<_>>>()?;
                 fill_array(self, &arr, vals, &d.ty);
             }
             Value::Arr(arr)
@@ -644,7 +806,10 @@ impl Instance {
                     // struct initializer
                     let v = self.default_value(&d.ty);
                     if let Value::Struct(s) = &v {
-                        let vals: Vec<Value> = items.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?;
+                        let vals: Vec<Value> = items
+                            .iter()
+                            .map(|e| self.eval(e, host))
+                            .collect::<R<Vec<_>>>()?;
                         let mut sb = s.borrow_mut();
                         for (i, val) in vals.into_iter().enumerate() {
                             if i < sb.fields.len() {
@@ -661,19 +826,32 @@ impl Instance {
                     self.coerce(v, &d.ty)
                 }
                 None => match &d.ty {
-                    Ty::Struct(c) if self.prog.classes.contains_key(c) => self.construct(*c, &[], host)?,
+                    Ty::Struct(c) if self.prog.classes.contains_key(c) => {
+                        self.construct(*c, &[], host)?
+                    }
                     _ => self.default_value(&d.ty),
                 },
             }
         };
-        Ok(Rc::new(RefCell::new(Var { ty: d.ty.clone(), v })))
+        Ok(Rc::new(RefCell::new(Var {
+            ty: d.ty.clone(),
+            v,
+        })))
     }
 
     fn build_array(&self, elem: &Ty, sizes: &[Option<usize>]) -> ArrRef {
         let n0 = sizes.first().copied().flatten().unwrap_or(0);
         let inner: Vec<usize> = sizes.iter().skip(1).map(|s| s.unwrap_or(0)).collect();
-        let data = (0..n0).map(|_| self.array_elem_default(elem, &inner)).collect();
-        Rc::new(RefCell::new(Array { data, elem: elem.clone(), series: false, inner, dynamic: sizes.first().is_some_and(|s| s.is_none()) }))
+        let data = (0..n0)
+            .map(|_| self.array_elem_default(elem, &inner))
+            .collect();
+        Rc::new(RefCell::new(Array {
+            data,
+            elem: elem.clone(),
+            series: false,
+            inner,
+            dynamic: sizes.first().is_some_and(|s| s.is_none()),
+        }))
     }
 
     pub fn array_elem_default(&self, elem: &Ty, inner: &[usize]) -> Value {
@@ -712,7 +890,11 @@ impl Instance {
             .iter()
             .map(|i| {
                 let n = prog.interner.name(i.name).to_string();
-                let v = self.globals.get(&i.name).map(|v| v.borrow().v.to_text()).unwrap_or_default();
+                let v = self
+                    .globals
+                    .get(&i.name)
+                    .map(|v| v.borrow().v.to_text())
+                    .unwrap_or_default();
                 (n, v)
             })
             .collect();
@@ -724,16 +906,28 @@ impl Instance {
     }
 
     pub fn has_func(&self, name: &str) -> bool {
-        self.prog.interner.get(name).is_some_and(|s| self.prog.funcs.contains_key(&s))
+        self.prog
+            .interner
+            .get(name)
+            .is_some_and(|s| self.prog.funcs.contains_key(&s))
     }
 
     /// Call an event handler if the program defines it.
-    pub fn call_event(&mut self, name: &str, args: Vec<Value>, host: &mut dyn Host) -> R<Option<Value>> {
+    pub fn call_event(
+        &mut self,
+        name: &str,
+        args: Vec<Value>,
+        host: &mut dyn Host,
+    ) -> R<Option<Value>> {
         let sym = match self.prog.interner.get(name) {
             Some(s) => s,
             None => return Ok(None),
         };
-        let f = match self.prog.funcs.get(&sym).and_then(|fs| fs.iter().find(|f| f.params.len() == args.len()).or(fs.first())) {
+        let f = match self.prog.funcs.get(&sym).and_then(|fs| {
+            fs.iter()
+                .find(|f| f.params.len() == args.len())
+                .or(fs.first())
+        }) {
             Some(f) => f.clone(),
             None => return Ok(None),
         };
@@ -809,7 +1003,12 @@ impl Instance {
                 Value::Arr(p.spread.clone()),
             ]
         } else {
-            vec![Value::Int(n as i64), Value::Int(self.prev_calculated), Value::Int(0), Value::Arr(p.price.clone())]
+            vec![
+                Value::Int(n as i64),
+                Value::Int(self.prev_calculated),
+                Value::Int(0),
+                Value::Arr(p.price.clone()),
+            ]
         };
         self.steps = 0;
         self.cur_func = "OnCalculate".into();
@@ -853,7 +1052,12 @@ impl Instance {
     /// The plots of an indicator with their data, for drawing.
     pub fn plot_data(&self) -> Vec<(PlotRt, Vec<Vec<f64>>)> {
         let mut out = vec![];
-        let bufs: Vec<&(ArrRef, i64)> = self.buffers.iter().flatten().filter(|(_, t)| *t != 2).collect();
+        let bufs: Vec<&(ArrRef, i64)> = self
+            .buffers
+            .iter()
+            .flatten()
+            .filter(|(_, t)| *t != 2)
+            .collect();
         let mut bi = 0;
         for plot in &self.plots {
             let need = match plot.draw_type {
@@ -896,7 +1100,13 @@ impl Instance {
         self.call_values_this(f, args, None, host)
     }
 
-    pub fn call_values_this(&mut self, f: &Rc<Func>, args: Vec<Value>, this: Option<StructRef>, host: &mut dyn Host) -> R<Value> {
+    pub fn call_values_this(
+        &mut self,
+        f: &Rc<Func>,
+        args: Vec<Value>,
+        this: Option<StructRef>,
+        host: &mut dyn Host,
+    ) -> R<Value> {
         let mut scope = vec![];
         for (i, p) in f.params.iter().enumerate() {
             let v = match args.get(i) {
@@ -907,7 +1117,13 @@ impl Instance {
                 },
             };
             let v = if p.is_array { v } else { self.coerce(v, &p.ty) };
-            scope.push((p.name, Rc::new(RefCell::new(Var { ty: p.ty.clone(), v }))));
+            scope.push((
+                p.name,
+                Rc::new(RefCell::new(Var {
+                    ty: p.ty.clone(),
+                    v,
+                })),
+            ));
         }
         self.this_stack.push(this);
         let r = self.run_body(f, scope, host);
@@ -915,7 +1131,12 @@ impl Instance {
         r
     }
 
-    fn run_body(&mut self, f: &Rc<Func>, scope: Vec<(Sym, VarRef)>, host: &mut dyn Host) -> R<Value> {
+    fn run_body(
+        &mut self,
+        f: &Rc<Func>,
+        scope: Vec<(Sym, VarRef)>,
+        host: &mut dyn Host,
+    ) -> R<Value> {
         if self.depth > 200 {
             return Err(self.err("stack overflow"));
         }
@@ -939,10 +1160,20 @@ impl Instance {
         self.frames.pop();
         self.depth -= 1;
         outcome?;
-        Ok(if f.ret == Ty::Void { Value::Void } else { self.coerce(result, &f.ret) })
+        Ok(if f.ret == Ty::Void {
+            Value::Void
+        } else {
+            self.coerce(result, &f.ret)
+        })
     }
 
-    fn call_user(&mut self, fs: &[Rc<Func>], args: &[Expr], this: Option<StructRef>, host: &mut dyn Host) -> R<Value> {
+    fn call_user(
+        &mut self,
+        fs: &[Rc<Func>],
+        args: &[Expr],
+        this: Option<StructRef>,
+        host: &mut dyn Host,
+    ) -> R<Value> {
         let fitting: Vec<&Rc<Func>> = fs
             .iter()
             .filter(|f| {
@@ -952,7 +1183,10 @@ impl Instance {
             .collect();
         let f = if fitting.len() > 1 {
             // overloads with the same number of parameters: choose by argument types
-            let vals = args.iter().map(|a| self.eval(a, host)).collect::<R<Vec<_>>>()?;
+            let vals = args
+                .iter()
+                .map(|a| self.eval(a, host))
+                .collect::<R<Vec<_>>>()?;
             let hints: Vec<Option<bool>> = args.iter().map(|a| self.pointer_hint(a)).collect();
             let mut best = fitting[0];
             let mut best_score = i64::MIN;
@@ -984,8 +1218,16 @@ impl Instance {
                             Expr::Var(s) if self.lookup(*s).is_some() => self.lookup(*s).unwrap(),
                             other => {
                                 let v = self.eval(other, host)?;
-                                let var = Rc::new(RefCell::new(Var { ty: p.ty.clone(), v }));
-                                if p.by_ref && matches!(other, Expr::Index(..) | Expr::Member(..) | Expr::Var(_)) {
+                                let var = Rc::new(RefCell::new(Var {
+                                    ty: p.ty.clone(),
+                                    v,
+                                }));
+                                if p.by_ref
+                                    && matches!(
+                                        other,
+                                        Expr::Index(..) | Expr::Member(..) | Expr::Var(_)
+                                    )
+                                {
                                     writebacks.push((other.clone(), var.clone()));
                                 }
                                 var
@@ -993,7 +1235,10 @@ impl Instance {
                         }
                     } else {
                         let v = self.eval(a, host)?;
-                        Rc::new(RefCell::new(Var { ty: p.ty.clone(), v: self.coerce(v, &p.ty) }))
+                        Rc::new(RefCell::new(Var {
+                            ty: p.ty.clone(),
+                            v: self.coerce(v, &p.ty),
+                        }))
                     }
                 }
                 None => {
@@ -1001,7 +1246,10 @@ impl Instance {
                         Some(e) => self.eval(e, host)?,
                         None => self.default_value(&p.ty),
                     };
-                    Rc::new(RefCell::new(Var { ty: p.ty.clone(), v: self.coerce(v, &p.ty) }))
+                    Rc::new(RefCell::new(Var {
+                        ty: p.ty.clone(),
+                        v: self.coerce(v, &p.ty),
+                    }))
                 }
             };
             scope.push((p.name, var));
@@ -1066,7 +1314,13 @@ impl Instance {
             Expr::Var(s) => {
                 let ty = match self.lookup(*s) {
                     Some(v) => Some(v.borrow().ty.clone()),
-                    None => self.cur_this().and_then(|t| t.borrow().fields.iter().find(|f| f.0 == *s).map(|f| f.1.clone())),
+                    None => self.cur_this().and_then(|t| {
+                        t.borrow()
+                            .fields
+                            .iter()
+                            .find(|f| f.0 == *s)
+                            .map(|f| f.1.clone())
+                    }),
                 };
                 match ty {
                     Some(Ty::Ptr(_)) => Some(true),
@@ -1094,7 +1348,10 @@ impl Instance {
     fn exec(&mut self, s: &Stmt, host: &mut dyn Host) -> R<Flow> {
         self.steps += 1;
         if self.steps > self.step_limit {
-            return Err(self.err(format!("endless loop detected in {} function", self.cur_func)));
+            return Err(self.err(format!(
+                "endless loop detected in {} function",
+                self.cur_func
+            )));
         }
         self.cur_line = s.line;
         self.cur_col = s.col;
@@ -1247,7 +1504,10 @@ impl Instance {
     fn tick_steps(&mut self) -> R<()> {
         self.steps += 1;
         if self.steps > self.step_limit {
-            return Err(self.err(format!("endless loop detected in {} function", self.cur_func)));
+            return Err(self.err(format!(
+                "endless loop detected in {} function",
+                self.cur_func
+            )));
         }
         Ok(())
     }
@@ -1318,7 +1578,12 @@ impl Instance {
                         let p = if a.series { len - 1 - idx } else { idx };
                         Ok(a.data[p as usize].clone())
                     }
-                    Value::Str(s) => Ok(Value::Int(s.chars().nth(idx.max(0) as usize).map(|c| c as i64).unwrap_or(0))),
+                    Value::Str(s) => Ok(Value::Int(
+                        s.chars()
+                            .nth(idx.max(0) as usize)
+                            .map(|c| c as i64)
+                            .unwrap_or(0),
+                    )),
                     Value::Struct(st) => match self.operator_method(&st, "operator[]") {
                         Some(f) => self.call_values_this(&f, vec![Value::Int(idx)], Some(st), host),
                         None => Err(self.err("'[' - array required")),
@@ -1334,10 +1599,15 @@ impl Instance {
                         let sb = s.borrow();
                         match sb.fields.iter().find(|(n, _, _)| n == f) {
                             Some((_, _, v)) => Ok(v.clone()),
-                            None => Err(self.err(format!("'{}' - undeclared member", self.sym(*f)))),
+                            None => {
+                                Err(self.err(format!("'{}' - undeclared member", self.sym(*f))))
+                            }
                         }
                     }
-                    _ => Err(self.err(format!("'{}' - struct member access on a non-struct value", self.sym(*f)))),
+                    _ => Err(self.err(format!(
+                        "'{}' - struct member access on a non-struct value",
+                        self.sym(*f)
+                    ))),
                 }
             }
             Expr::Call(s, args) => {
@@ -1379,11 +1649,18 @@ impl Instance {
                         let cls = st.borrow().ty;
                         match self.prog.find_method(cls, *m).cloned() {
                             Some(fs) => self.call_user(&fs, args, Some(st), host),
-                            None => Err(self.err(format!("'{}' - undeclared method of '{}'", name, self.sym(cls)))),
+                            None => Err(self.err(format!(
+                                "'{}' - undeclared method of '{}'",
+                                name,
+                                self.sym(cls)
+                            ))),
                         }
                     }
                     Value::Int(0) | Value::Void => Err(self.err("invalid pointer access")),
-                    _ => Err(self.err(format!("'{}' - method call on a value that is not an object", name))),
+                    _ => Err(self.err(format!(
+                        "'{}' - method call on a value that is not an object",
+                        name
+                    ))),
                 }
             }
             Expr::ScopedCall(cls, m, args) => match self.prog.find_method(*cls, *m).cloned() {
@@ -1452,11 +1729,15 @@ impl Instance {
                 let l = self.eval(a, host)?;
                 let r = self.eval(b, host)?;
                 if let Value::Struct(st) = &l {
-                    if let Some(f) = self.operator_method(st, &format!("operator{}", binop_text(*op))) {
+                    if let Some(f) =
+                        self.operator_method(st, &format!("operator{}", binop_text(*op)))
+                    {
                         return self.call_values_this(&f, vec![r], Some(st.clone()), host);
                     }
                 }
-                if matches!(op, BinOp::Eq | BinOp::Ne) && (matches!(l, Value::Struct(_)) || matches!(r, Value::Struct(_))) {
+                if matches!(op, BinOp::Eq | BinOp::Ne)
+                    && (matches!(l, Value::Struct(_)) || matches!(r, Value::Struct(_)))
+                {
                     let same = match (&l, &r) {
                         (Value::Struct(x), Value::Struct(y)) => Rc::ptr_eq(x, y),
                         _ => false,
@@ -1470,7 +1751,10 @@ impl Instance {
                     Expr::List(items) => {
                         // assigning an initializer list to an array or struct
                         let cur = self.eval(lhs, host)?;
-                        let vals: Vec<Value> = items.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?;
+                        let vals: Vec<Value> = items
+                            .iter()
+                            .map(|e| self.eval(e, host))
+                            .collect::<R<Vec<_>>>()?;
                         match &cur {
                             Value::Arr(a) => {
                                 let elem = a.borrow().elem.clone();
@@ -1505,7 +1789,11 @@ impl Instance {
                 let cur = self.eval(target, host)?;
                 let new = match &cur {
                     Value::Double(d) => Value::Double(if *inc { d + 1.0 } else { d - 1.0 }),
-                    other => Value::Int(if *inc { other.as_i64() + 1 } else { other.as_i64() - 1 }),
+                    other => Value::Int(if *inc {
+                        other.as_i64() + 1
+                    } else {
+                        other.as_i64() - 1
+                    }),
                 };
                 self.assign(target, new.clone(), host)?;
                 Ok(if *pre { new } else { cur })
@@ -1522,7 +1810,10 @@ impl Instance {
                 Ok(self.coerce(v, ty))
             }
             Expr::List(items) => {
-                let vals: Vec<Value> = items.iter().map(|e| self.eval(e, host)).collect::<R<Vec<_>>>()?;
+                let vals: Vec<Value> = items
+                    .iter()
+                    .map(|e| self.eval(e, host))
+                    .collect::<R<Vec<_>>>()?;
                 Ok(Value::Arr(new_array(Ty::Double, vals)))
             }
         }
@@ -1598,7 +1889,11 @@ impl Instance {
                 match av {
                     Value::Arr(arr) => {
                         let elem = arr.borrow().elem.clone();
-                        let nv = if matches!(v, Value::Arr(_)) { v } else { self.coerce(v, &elem) };
+                        let nv = if matches!(v, Value::Arr(_)) {
+                            v
+                        } else {
+                            self.coerce(v, &elem)
+                        };
                         let mut a = arr.borrow_mut();
                         let len = a.data.len() as i64;
                         if idx < 0 || idx >= len {
@@ -1616,7 +1911,12 @@ impl Instance {
                 let ov = self.eval(o, host)?;
                 match ov {
                     Value::Struct(s) => {
-                        let ty = s.borrow().fields.iter().find(|(n, _, _)| n == f).map(|x| x.1.clone());
+                        let ty = s
+                            .borrow()
+                            .fields
+                            .iter()
+                            .find(|(n, _, _)| n == f)
+                            .map(|x| x.1.clone());
                         match ty {
                             Some(t) => {
                                 let nv = self.coerce(v, &t);
@@ -1626,7 +1926,9 @@ impl Instance {
                                 }
                                 Ok(())
                             }
-                            None => Err(self.err(format!("'{}' - undeclared member", self.sym(*f)))),
+                            None => {
+                                Err(self.err(format!("'{}' - undeclared member", self.sym(*f))))
+                            }
                         }
                     }
                     _ => Err(self.err("struct member access on a non-struct value")),
@@ -1639,7 +1941,9 @@ impl Instance {
     fn operator_method(&self, st: &StructRef, name: &str) -> Option<Rc<Func>> {
         let sym = self.prog.interner.get(name)?;
         let cls = st.borrow().ty;
-        self.prog.find_method(cls, sym).and_then(|v| v.first().cloned())
+        self.prog
+            .find_method(cls, sym)
+            .and_then(|v| v.first().cloned())
     }
 
     fn binop(&self, op: BinOp, l: Value, r: Value) -> R<Value> {
@@ -1659,7 +1963,8 @@ impl Instance {
                 });
             }
         }
-        let both_int = matches!(l, Value::Int(_) | Value::Bool(_)) && matches!(r, Value::Int(_) | Value::Bool(_));
+        let both_int = matches!(l, Value::Int(_) | Value::Bool(_))
+            && matches!(r, Value::Int(_) | Value::Bool(_));
         Ok(match op {
             Add | Sub | Mul | Div | Mod => {
                 if both_int {
@@ -1791,7 +2096,9 @@ pub fn deep_copy_struct(s: &StructVal) -> StructVal {
             .iter()
             .map(|(n, t, v)| {
                 let v = match v {
-                    Value::Struct(x) if !matches!(t, Ty::Ptr(_) | Ty::Any) => Value::Struct(Rc::new(RefCell::new(deep_copy_struct(&x.borrow())))),
+                    Value::Struct(x) if !matches!(t, Ty::Ptr(_) | Ty::Any) => {
+                        Value::Struct(Rc::new(RefCell::new(deep_copy_struct(&x.borrow()))))
+                    }
                     Value::Arr(a) => {
                         let ab = a.borrow();
                         Value::Arr(Rc::new(RefCell::new(Array {
@@ -1835,13 +2142,18 @@ fn fill_array(inst: &Instance, arr: &ArrRef, vals: Vec<Value>, elem: &Ty) {
 }
 
 pub fn default_plot_color(i: usize) -> u32 {
-    [0xFF901E, 0x0000FF, 0x00FF00, 0x00D7FF, 0xFF00FF, 0xFFFF00, 0xC0C0C0, 0x00A5FF][i % 8]
+    [
+        0xFF901E, 0x0000FF, 0x00FF00, 0x00D7FF, 0xFF00FF, 0xFFFF00, 0xC0C0C0, 0x00A5FF,
+    ][i % 8]
 }
 
 pub fn parse_input_value(text: &str, ty: &Ty, enum_name: Option<&str>, prog: &Program) -> Value {
     let t = text.trim();
     match ty {
-        Ty::Bool => Value::Bool(matches!(t.to_ascii_lowercase().as_str(), "true" | "1" | "yes")),
+        Ty::Bool => Value::Bool(matches!(
+            t.to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes"
+        )),
         Ty::Double => Value::Double(t.parse().unwrap_or(0.0)),
         Ty::Str => Value::str(t),
         Ty::Int => {

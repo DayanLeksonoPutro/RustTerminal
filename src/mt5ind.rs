@@ -208,8 +208,10 @@ pub fn builtin(kind: IndKind, p: &IndParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                 rsi[p1] = rsi_value(pos_b[p1], neg_b[p1]);
                 for i in p1 + 1..n {
                     let d = price[i] - price[i - 1];
-                    pos_b[i] = (pos_b[i - 1] * (p1 as f64 - 1.0) + if d > 0.0 { d } else { 0.0 }) / p1 as f64;
-                    neg_b[i] = (neg_b[i - 1] * (p1 as f64 - 1.0) + if d < 0.0 { -d } else { 0.0 }) / p1 as f64;
+                    pos_b[i] = (pos_b[i - 1] * (p1 as f64 - 1.0) + if d > 0.0 { d } else { 0.0 })
+                        / p1 as f64;
+                    neg_b[i] = (neg_b[i - 1] * (p1 as f64 - 1.0) + if d < 0.0 { -d } else { 0.0 })
+                        / p1 as f64;
                     rsi[i] = rsi_value(pos_b[i], neg_b[i]);
                 }
             }
@@ -265,7 +267,11 @@ pub fn builtin(kind: IndKind, p: &IndParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                         sum_low += close[j] - lows[j];
                         sum_high += highs[j] - lows[j];
                     }
-                    main[i] = if sum_high == 0.0 { 100.0 } else { sum_low / sum_high * 100.0 };
+                    main[i] = if sum_high == 0.0 {
+                        100.0
+                    } else {
+                        sum_low / sum_high * 100.0
+                    };
                 }
                 if p.method == 0 {
                     for s in sig.iter_mut().take(d - 1) {
@@ -308,7 +314,11 @@ pub fn builtin(kind: IndKind, p: &IndParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                 for i in start..n {
                     let sp = simple_ma(i, p1, &price);
                     let dev: f64 = (0..p1).map(|j| (price[i - j] - sp).abs()).sum::<f64>() * mult;
-                    cci[i] = if dev != 0.0 { (price[i] - sp) / dev } else { 0.0 };
+                    cci[i] = if dev != 0.0 {
+                        (price[i] - sp) / dev
+                    } else {
+                        0.0
+                    };
                 }
             }
             out.push(cci);
@@ -350,7 +360,10 @@ pub fn builtin(kind: IndKind, p: &IndParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                         up = 0.0;
                         dn = 0.0;
                     }
-                    let tr = (high[i] - low[i]).abs().max((high[i] - close[i - 1]).abs()).max((low[i] - close[i - 1]).abs());
+                    let tr = (high[i] - low[i])
+                        .abs()
+                        .max((high[i] - close[i - 1]).abs())
+                        .max((low[i] - close[i - 1]).abs());
                     if tr != 0.0 {
                         pd[i] = 100.0 * up / tr;
                         nd[i] = 100.0 * dn / tr;
@@ -358,7 +371,11 @@ pub fn builtin(kind: IndKind, p: &IndParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                     pdi[i] = exponential_ma(i, p1, pdi[i - 1], &pd);
                     ndi[i] = exponential_ma(i, p1, ndi[i - 1], &nd);
                     let s = pdi[i] + ndi[i];
-                    tmp[i] = if s != 0.0 { 100.0 * ((pdi[i] - ndi[i]) / s).abs() } else { 0.0 };
+                    tmp[i] = if s != 0.0 {
+                        100.0 * ((pdi[i] - ndi[i]) / s).abs()
+                    } else {
+                        0.0
+                    };
                     adx[i] = exponential_ma(i, p1, adx[i - 1], &tmp);
                 }
             }
@@ -373,7 +390,13 @@ pub fn builtin(kind: IndKind, p: &IndParams, bars: &[Bar]) -> Vec<Vec<f64>> {
                 for i in p1 - 1..n {
                     let hh = highest_from(&high, p1, i);
                     let ll = lowest_from(&low, p1, i);
-                    w[i] = if hh != ll { -(hh - close[i]) * 100.0 / (hh - ll) } else if i > 0 { w[i - 1] } else { 0.0 };
+                    w[i] = if hh != ll {
+                        -(hh - close[i]) * 100.0 / (hh - ll)
+                    } else if i > 0 {
+                        w[i - 1]
+                    } else {
+                        0.0
+                    };
                 }
             }
             out.push(w);
@@ -415,10 +438,18 @@ pub fn builtin(kind: IndKind, p: &IndParams, bars: &[Bar]) -> Vec<Vec<f64>> {
             let mut dn = vec![EMPTY; n];
             if n >= 5 {
                 for i in 2..n - 3 {
-                    if high[i] > high[i + 1] && high[i] > high[i + 2] && high[i] >= high[i - 1] && high[i] >= high[i - 2] {
+                    if high[i] > high[i + 1]
+                        && high[i] > high[i + 2]
+                        && high[i] >= high[i - 1]
+                        && high[i] >= high[i - 2]
+                    {
                         up[i] = high[i];
                     }
-                    if low[i] < low[i + 1] && low[i] < low[i + 2] && low[i] <= low[i - 1] && low[i] <= low[i - 2] {
+                    if low[i] < low[i + 1]
+                        && low[i] < low[i + 2]
+                        && low[i] <= low[i - 1]
+                        && low[i] <= low[i - 2]
+                    {
                         dn[i] = low[i];
                     }
                 }
@@ -458,8 +489,10 @@ fn sar(high: &[f64], low: &[f64], step: f64, maximum: f64) -> Vec<f64> {
     }
     let mut ep = vec![0.0; n];
     let mut af = vec![0.0; n];
-    let get_high = |cur: usize, start: usize| high[start..=cur].iter().cloned().fold(f64::MIN, f64::max);
-    let get_low = |cur: usize, start: usize| low[start..=cur].iter().cloned().fold(f64::MAX, f64::min);
+    let get_high =
+        |cur: usize, start: usize| high[start..=cur].iter().cloned().fold(f64::MIN, f64::max);
+    let get_low =
+        |cur: usize, start: usize| low[start..=cur].iter().cloned().fold(f64::MAX, f64::min);
     af[0] = step;
     af[1] = step;
     sar[0] = high[0];
@@ -566,7 +599,11 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                     if i == 0 {
                         continue;
                     }
-                    out[i] = if e3[i - 1] != 0.0 { (e3[i] - e3[i - 1]) / e3[i - 1] } else { 0.0 };
+                    out[i] = if e3[i - 1] != 0.0 {
+                        (e3[i] - e3[i - 1]) / e3[i - 1]
+                    } else {
+                        0.0
+                    };
                 }
             }
             vec![out]
@@ -623,7 +660,11 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
             let mut v = e();
             if n >= pp {
                 for i in pp..n {
-                    v[i] = if kind == ExtKind::Bears { low[i] - m[i] } else { high[i] - m[i] };
+                    v[i] = if kind == ExtKind::Bears {
+                        low[i] - m[i]
+                    } else {
+                        high[i] - m[i]
+                    };
                 }
             }
             vec![v]
@@ -647,8 +688,20 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                 for x in sig.iter_mut().take(pp + 6) {
                     *x = 0.0;
                 }
-                let up = |j: usize| close[j] - open[j] + 2.0 * (close[j - 1] - open[j - 1]) + 2.0 * (close[j - 2] - open[j - 2]) + close[j - 3] - open[j - 3];
-                let dn = |j: usize| high[j] - low[j] + 2.0 * (high[j - 1] - low[j - 1]) + 2.0 * (high[j - 2] - low[j - 2]) + high[j - 3] - low[j - 3];
+                let up = |j: usize| {
+                    close[j] - open[j]
+                        + 2.0 * (close[j - 1] - open[j - 1])
+                        + 2.0 * (close[j - 2] - open[j - 2])
+                        + close[j - 3]
+                        - open[j - 3]
+                };
+                let dn = |j: usize| {
+                    high[j] - low[j]
+                        + 2.0 * (high[j - 1] - low[j - 1])
+                        + 2.0 * (high[j - 2] - low[j - 2])
+                        + high[j - 3]
+                        - low[j - 3]
+                };
                 for i in pp + 2..n {
                     let (mut su, mut sd) = (0.0, 0.0);
                     for j in (i + 1 - pp..=i).rev() {
@@ -692,8 +745,16 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                 let mut mx = vec![0.0; n];
                 let mut mn = vec![0.0; n];
                 for i in 1..n {
-                    mx[i] = if high[i] > high[i - 1] { high[i] - high[i - 1] } else { 0.0 };
-                    mn[i] = if low[i - 1] > low[i] { low[i - 1] - low[i] } else { 0.0 };
+                    mx[i] = if high[i] > high[i - 1] {
+                        high[i] - high[i - 1]
+                    } else {
+                        0.0
+                    };
+                    mn[i] = if low[i - 1] > low[i] {
+                        low[i - 1] - low[i]
+                    } else {
+                        0.0
+                    };
                 }
                 for x in dem.iter_mut().take(pp) {
                     *x = 0.0;
@@ -769,7 +830,14 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
             vec![v, c]
         }
         ExtKind::Gator => {
-            let (jp, js, tp, ts, lp, ls) = (pi(0, 13).max(1) as usize, pi(1, 8), pi(2, 8).max(1) as usize, pi(3, 5), pi(4, 5).max(1) as usize, pi(5, 3));
+            let (jp, js, tp, ts, lp, ls) = (
+                pi(0, 13).max(1) as usize,
+                pi(1, 8),
+                pi(2, 8).max(1) as usize,
+                pi(3, 5),
+                pi(4, 5).max(1) as usize,
+                pi(5, 3),
+            );
             let method = pi(6, 2);
             let pr = price_of(pi(7, 5));
             let jaw = ima(&pr, jp, method);
@@ -793,7 +861,13 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                         let cur = -(teeth[i - lsft] - lips[i]).abs();
                         let prev = lo[i - 1];
                         lo[i] = cur;
-                        lc[i] = if prev == cur { lc[i - 1] } else if prev < cur { 1.0 } else { 0.0 };
+                        lc[i] = if prev == cur {
+                            lc[i - 1]
+                        } else if prev < cur {
+                            1.0
+                        } else {
+                            0.0
+                        };
                     } else {
                         lo[i] = 0.0;
                         lc[i] = 0.0;
@@ -802,7 +876,13 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                         let cur = (jaw[i - us] - teeth[i]).abs();
                         up[i] = cur;
                         let prev = up[i - 1];
-                        uc[i] = if prev == cur { uc[i - 1] } else if prev < cur { 0.0 } else { 1.0 };
+                        uc[i] = if prev == cur {
+                            uc[i - 1]
+                        } else if prev < cur {
+                            0.0
+                        } else {
+                            1.0
+                        };
                     } else {
                         up[i] = 0.0;
                         uc[i] = 0.0;
@@ -847,7 +927,10 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                     v[i] = pr[i];
                 }
                 let hl = |from: usize, to: usize| -> (f64, f64) {
-                    (high[from..=to].iter().cloned().fold(f64::MIN, f64::max), low[from..=to].iter().cloned().fold(f64::MAX, f64::min))
+                    (
+                        high[from..=to].iter().cloned().fold(f64::MIN, f64::max),
+                        low[from..=to].iter().cloned().fold(f64::MAX, f64::min),
+                    )
                 };
                 let ln2 = 2f64.ln();
                 for i in start..n {
@@ -905,7 +988,15 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
             let (mut adx, mut pdi, mut ndi) = (e(), e(), e());
             if n >= pp && n > 1 {
                 let z = vec![0.0; n];
-                let (mut pd, mut nd, mut tr, mut atr, mut pds, mut nds, mut dx) = (z.clone(), z.clone(), z.clone(), z.clone(), z.clone(), z.clone(), z);
+                let (mut pd, mut nd, mut tr, mut atr, mut pds, mut nds, mut dx) = (
+                    z.clone(),
+                    z.clone(),
+                    z.clone(),
+                    z.clone(),
+                    z.clone(),
+                    z.clone(),
+                    z,
+                );
                 for i in 0..pp.min(n) {
                     adx[i] = 0.0;
                     pdi[i] = 0.0;
@@ -924,7 +1015,10 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                     }
                     pd[i] = up;
                     nd[i] = dn;
-                    tr[i] = (high[i] - low[i]).abs().max((high[i] - close[i - 1]).abs()).max((low[i] - close[i - 1]).abs());
+                    tr[i] = (high[i] - low[i])
+                        .abs()
+                        .max((high[i] - close[i - 1]).abs())
+                        .max((low[i] - close[i - 1]).abs());
                     if i < pp {
                         atr[i] = 0.0;
                         pdi[i] = 0.0;
@@ -942,7 +1036,11 @@ pub fn ext(kind: ExtKind, p: &ExtParams, bars: &[Bar], point: f64) -> Option<Vec
                         ndi[i] = 0.0;
                     }
                     let s = pdi[i] + ndi[i];
-                    dx[i] = if s != 0.0 { 100.0 * ((pdi[i] - ndi[i]) / s).abs() } else { 0.0 };
+                    dx[i] = if s != 0.0 {
+                        100.0 * ((pdi[i] - ndi[i]) / s).abs()
+                    } else {
+                        0.0
+                    };
                     adx[i] = smoothed_ma(i, pp, adx[i - 1], &dx);
                 }
             }

@@ -41,6 +41,10 @@ MetaTrader 5 Standard Library (`Trade.mqh`, `Indicators/*`, `Arrays/*`, ...).
   trade counts. With imported M1 history the test runs on real minutes and EAs can read any
   timeframe.
 
+- **MCP server for AI coding agents**: `rust-terminal mcp` lets Claude Code, opencode, Codex,
+  Gemini CLI, Cursor, … write, compile and run custom indicators and EAs, back-test them and
+  analyse charts (with PNG chart images). Setup: [docs/MCP.md](docs/MCP.md).
+
 ## Getting started
 
 ### Requirements
