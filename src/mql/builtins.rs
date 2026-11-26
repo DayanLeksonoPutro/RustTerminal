@@ -588,6 +588,9 @@ pub const EXTRA_FUNCS: &[&str] = &[
 ];
 
 pub fn is_builtin_func(name: &str) -> bool {
+    if name.starts_with("matrix::") || name.starts_with("vector::") {
+        return true;
+    }
     if EXTRA_FUNCS.contains(&name) || crate::indicators_ext::FUNCTIONS.contains(&name) {
         return true;
     }
@@ -1793,6 +1796,29 @@ fn table() -> &'static HashMap<String, Const> {
             ("TICK_FLAG_VOLUME", 16),
             ("TICK_FLAG_BUY", 32),
             ("TICK_FLAG_SELL", 64),
+            ("COPY_RATES_OPEN", 1),
+            ("COPY_RATES_HIGH", 2),
+            ("COPY_RATES_LOW", 4),
+            ("COPY_RATES_CLOSE", 8),
+            ("COPY_RATES_TIME", 16),
+            ("COPY_RATES_VOLUME_TICK", 32),
+            ("COPY_RATES_VOLUME_REAL", 64),
+            ("COPY_RATES_SPREAD", 128),
+            ("COPY_RATES_OHLC", 15),
+            ("COPY_RATES_OHLCT", 31),
+            ("COPY_RATES_VERTICAL", 32768),
+            ("VECTOR_NORM_INF", 0),
+            ("VECTOR_NORM_MINUS_INF", 1),
+            ("VECTOR_NORM_P", 2),
+            ("MATRIX_NORM_FROBENIUS", 0),
+            ("MATRIX_NORM_SPECTRAL", 1),
+            ("MATRIX_NORM_NUCLEAR", 5),
+            ("MATRIX_NORM_INF", 4),
+            ("MATRIX_NORM_MINUS_INF", 6),
+            ("MATRIX_NORM_P1", 2),
+            ("MATRIX_NORM_MINUS_P1", 7),
+            ("MATRIX_NORM_P2", 3),
+            ("MATRIX_NORM_MINUS_P2", 8),
             ("COPY_TICKS_ALL", -1),
             ("COPY_TICKS_INFO", 1),
             ("COPY_TICKS_TRADE", 2),

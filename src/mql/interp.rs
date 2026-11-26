@@ -25,6 +25,7 @@ pub enum Value {
     Arr(ArrRef),
     Struct(StructRef),
     Obj(ObjRef),
+    Mat(matrix::MatRef),
 }
 
 #[derive(Debug)]
@@ -120,6 +121,7 @@ impl Value {
             Value::Arr(a) => format!("array[{}]", a.borrow().data.len()),
             Value::Struct(_) => "struct".to_string(),
             Value::Obj(_) => "object".to_string(),
+            Value::Mat(m) => m.borrow().to_text(),
         }
     }
     pub fn str(s: &str) -> Value {
@@ -475,6 +477,7 @@ impl Instance {
             }
             Ty::Ptr(_) => Value::Int(0),
             Ty::Any => Value::Void,
+            Ty::Mat(v) => Value::Mat(matrix::new_mat(matrix::Mat::empty(*v))),
         }
     }
 
@@ -512,6 +515,10 @@ impl Instance {
 
     pub fn coerce(&self, v: Value, ty: &Ty) -> Value {
         match (ty, v) {
+            (Ty::Mat(want_vec), v) => {
+                let m = matrix::from_value(&v, *want_vec);
+                Value::Mat(matrix::new_mat(m))
+            }
             (_, Value::Arr(a)) => Value::Arr(a),
             (Ty::Int, v) => Value::Int(v.as_i64()),
             (Ty::Double, v) => Value::Double(v.as_f64()),
@@ -802,6 +809,10 @@ impl Instance {
             Value::Arr(arr)
         } else {
             match &d.init {
+                Some(e @ Expr::List(_)) if matches!(d.ty, Ty::Mat(_)) => {
+                    let v = self.eval(e, host)?;
+                    self.coerce(v, &d.ty)
+                }
                 Some(Expr::List(items)) => {
                     // struct initializer
                     let v = self.default_value(&d.ty);
@@ -1566,30 +1577,27 @@ impl Instance {
             Expr::Null => Ok(Value::Void),
             Expr::Var(s) => self.read_var(*s, host),
             Expr::Index(a, i) => {
-                let av = self.eval(a, host)?;
-                let idx = self.eval(i, host)?.as_i64();
-                match av {
-                    Value::Arr(arr) => {
-                        let a = arr.borrow();
-                        let len = a.data.len() as i64;
-                        if idx < 0 || idx >= len {
-                            return Err(self.err("array out of range"));
+                // m[r][c] on a matrix: read the element without copying the row
+                let av = if let Expr::Index(b, i0) = a.as_ref() {
+                    let bv = self.eval(b, host)?;
+                    if let Value::Mat(m) = &bv {
+                        if !m.borrow().vec {
+                            let r = self.eval(i0, host)?.as_i64();
+                            let c = self.eval(i, host)?.as_i64();
+                            let m = m.borrow();
+                            if r < 0 || c < 0 || r as usize >= m.rows || c as usize >= m.cols {
+                                return Err(self.err("matrix index out of range"));
+                            }
+                            return Ok(Value::Double(m.at(r as usize, c as usize)));
                         }
-                        let p = if a.series { len - 1 - idx } else { idx };
-                        Ok(a.data[p as usize].clone())
                     }
-                    Value::Str(s) => Ok(Value::Int(
-                        s.chars()
-                            .nth(idx.max(0) as usize)
-                            .map(|c| c as i64)
-                            .unwrap_or(0),
-                    )),
-                    Value::Struct(st) => match self.operator_method(&st, "operator[]") {
-                        Some(f) => self.call_values_this(&f, vec![Value::Int(idx)], Some(st), host),
-                        None => Err(self.err("'[' - array required")),
-                    },
-                    _ => Err(self.err("'[' - array required")),
-                }
+                    let i0v = self.eval(i0, host)?.as_i64();
+                    self.index_value(bv, i0v, host)?
+                } else {
+                    self.eval(a, host)?
+                };
+                let idx = self.eval(i, host)?.as_i64();
+                self.index_value(av, idx, host)
             }
             Expr::Member(o, f) => {
                 let ov = self.eval(o, host)?;
@@ -1645,6 +1653,7 @@ impl Instance {
                 let name = self.sym(*m).to_string();
                 match ov {
                     Value::Obj(obj) => self.call_method(&obj, &name, args, host),
+                    Value::Mat(m) => self.mat_method(&m, &name, args, host),
                     Value::Struct(st) => {
                         let cls = st.borrow().ty;
                         match self.prog.find_method(cls, *m).cloned() {
@@ -1701,6 +1710,7 @@ impl Instance {
                 Ok(match op {
                     UnOp::Neg => match v {
                         Value::Int(i) => Value::Int(-i),
+                        Value::Mat(_) => self.binop(BinOp::Mul, v, Value::Double(-1.0))?,
                         other => Value::Double(-other.as_f64()),
                     },
                     UnOp::Plus => v,
@@ -1819,6 +1829,45 @@ impl Instance {
         }
     }
 
+    fn index_value(&mut self, av: Value, idx: i64, host: &mut dyn Host) -> R<Value> {
+        match av {
+            Value::Arr(arr) => {
+                let a = arr.borrow();
+                let len = a.data.len() as i64;
+                if idx < 0 || idx >= len {
+                    return Err(self.err("array out of range"));
+                }
+                let p = if a.series { len - 1 - idx } else { idx };
+                Ok(a.data[p as usize].clone())
+            }
+            Value::Mat(m) => {
+                let m = m.borrow();
+                if m.vec {
+                    if idx < 0 || idx as usize >= m.cols {
+                        return Err(self.err("vector index out of range"));
+                    }
+                    Ok(Value::Double(m.data[idx as usize]))
+                } else {
+                    if idx < 0 || idx as usize >= m.rows {
+                        return Err(self.err("matrix index out of range"));
+                    }
+                    Ok(Value::Mat(matrix::new_mat(m.row(idx as usize))))
+                }
+            }
+            Value::Str(s) => Ok(Value::Int(
+                s.chars()
+                    .nth(idx.max(0) as usize)
+                    .map(|c| c as i64)
+                    .unwrap_or(0),
+            )),
+            Value::Struct(st) => match self.operator_method(&st, "operator[]") {
+                Some(f) => self.call_values_this(&f, vec![Value::Int(idx)], Some(st), host),
+                None => Err(self.err("'[' - array required")),
+            },
+            _ => Err(self.err("'[' - array required")),
+        }
+    }
+
     fn read_var(&mut self, s: Sym, host: &mut dyn Host) -> R<Value> {
         if let Some(v) = self.lookup(s) {
             return Ok(v.borrow().v.clone());
@@ -1884,9 +1933,43 @@ impl Instance {
                 }
             },
             Expr::Index(a, i) => {
+                if let Expr::Index(b, i0) = a.as_ref() {
+                    // m[r][c] = v
+                    let bv = self.eval(b, host)?;
+                    if let Value::Mat(m) = &bv {
+                        let r = self.eval(i0, host)?.as_i64();
+                        let c = self.eval(i, host)?.as_i64();
+                        let mut m = m.borrow_mut();
+                        if r < 0 || c < 0 || r as usize >= m.rows || c as usize >= m.cols {
+                            return Err(self.err("matrix index out of range"));
+                        }
+                        m.set(r as usize, c as usize, v.as_f64());
+                        return Ok(());
+                    }
+                }
                 let av = self.eval(a, host)?;
                 let idx = self.eval(i, host)?.as_i64();
                 match av {
+                    Value::Mat(m) => {
+                        let mut m = m.borrow_mut();
+                        if m.vec {
+                            if idx < 0 || idx as usize >= m.cols {
+                                return Err(self.err("vector index out of range"));
+                            }
+                            m.data[idx as usize] = v.as_f64();
+                        } else {
+                            // m[r] = vector
+                            if idx < 0 || idx as usize >= m.rows {
+                                return Err(self.err("matrix index out of range"));
+                            }
+                            let src = matrix::from_value(&v, true);
+                            let cols = m.cols;
+                            for c in 0..cols.min(src.size()) {
+                                m.set(idx as usize, c, src.data[c]);
+                            }
+                        }
+                        Ok(())
+                    }
                     Value::Arr(arr) => {
                         let elem = arr.borrow().elem.clone();
                         let nv = if matches!(v, Value::Arr(_)) {
@@ -1948,6 +2031,9 @@ impl Instance {
 
     fn binop(&self, op: BinOp, l: Value, r: Value) -> R<Value> {
         use BinOp::*;
+        if matches!(l, Value::Mat(_)) || matches!(r, Value::Mat(_)) {
+            return matrix::binop(op, &l, &r).map_err(|e| self.err(e));
+        }
         if let (Value::Str(_), _) | (_, Value::Str(_)) = (&l, &r) {
             if matches!(l, Value::Str(_)) && matches!(r, Value::Str(_)) || op == Add {
                 let (a, b) = (l.to_text(), r.to_text());
@@ -2181,3 +2267,4 @@ pub fn parse_input_value(text: &str, ty: &Ty, enum_name: Option<&str>, prog: &Pr
 
 mod calls;
 mod extra;
+pub mod matrix;

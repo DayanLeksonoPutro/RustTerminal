@@ -1096,3 +1096,64 @@ fn live_feed() {
     );
     assert!(h1.len() >= 500 && d1.len() >= 500);
 }
+
+#[test]
+fn matrix_vector() {
+    let out = run_script(
+        r#"
+double Sq(vector &v) { return v.Dot(v); }
+void OnStart() {
+   matrix a = {{1, 2}, {3, 4}};
+   matrix b = matrix::Eye(2, 2);
+   matrix c = a.MatMul(b) + 1.0;
+   Print(c[1][0]);
+   matrix i = a.Inv();
+   PrintFormat("%.2f %.2f", a.Det(), i[0][0]);
+   vector v = {3, 4};
+   Print(v.Norm(VECTOR_NORM_P), " ", Sq(v), " ", v.Size());
+   vector w(3);
+   w[2] = 7;
+   w.Resize(4);
+   Print(w.Sum(), " ", w.Size());
+   matrix z(2, 3);
+   z.Fill(2);
+   z[1][2] = 5;
+   matrix t = z.Transpose();
+   Print(t.Rows(), "x", t.Cols(), " ", t[2][1]);
+   matrix copy = a;
+   copy[0][0] = 100;
+   Print(a[0][0]);
+   vector s = a.Sum(0);
+   Print(s);
+   vector e = MathExp(vector::Zeros(2));
+   Print(e[1]);
+   matrix r;
+   bool ok = r.CopyRates(_Symbol, PERIOD_H1, COPY_RATES_OHLC, 0, 10);
+   Print(ok, " ", r.Rows(), " ", r.Cols());
+   vector cl;
+   cl.CopyRates(_Symbol, PERIOD_H1, COPY_RATES_CLOSE, 0, 5);
+   Print(cl.Size(), " ", cl[4] == iClose(_Symbol, PERIOD_H1, 0));
+   vector x = a.Solve(vector::Ones(2) * 3);
+   PrintFormat("%.1f %.1f", x[0], x[1]);
+}
+"#,
+    );
+    let want = [
+        "4",
+        "-2.00 -2.00",
+        "5 25 2",
+        "7 4",
+        "3x2 5",
+        "1",
+        "[4,6]",
+        "1",
+        "true 4 10",
+        "5 true",
+        "-3.0 3.0",
+    ];
+    let got: Vec<&str> = out
+        .iter()
+        .map(|s| s.split("   ").last().unwrap_or(s).trim())
+        .collect();
+    assert!(got.ends_with(&want), "{:#?}", got);
+}

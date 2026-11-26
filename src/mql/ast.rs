@@ -44,6 +44,8 @@ pub enum Ty {
     Ptr(Sym),
     /// template parameter: any value, never converted
     Any,
+    /// `matrix` (false) or `vector` (true), double precision
+    Mat(bool),
 }
 
 impl Ty {

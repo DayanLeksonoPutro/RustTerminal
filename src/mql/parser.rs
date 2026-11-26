@@ -66,6 +66,19 @@ const PRIM_TYPES: [&str; 17] = [
     "double", "string", "datetime", "color", "unsigned", "signed",
 ];
 
+/// matrix and vector types (float and complex variants share the double version)
+const MAT_TYPES: [&str; 6] = [
+    "matrix", "matrixf", "matrixc", "vector", "vectorf", "vectorc",
+];
+
+fn mat_kind(name: &str) -> Option<&'static str> {
+    match name {
+        "matrix" | "matrixf" | "matrixc" => Some("matrix"),
+        "vector" | "vectorf" | "vectorc" => Some("vector"),
+        _ => None,
+    }
+}
+
 impl Parser {
     fn new(file_name: &str, comments: HashMap<u32, String>) -> Self {
         let mut type_names: HashSet<String> = PRIM_TYPES.iter().map(|s| s.to_string()).collect();
@@ -81,6 +94,9 @@ impl Parser {
             structs.insert(sym, Rc::new(StructDef { name: sym, fields }));
         }
         for c in builtins::BUILTIN_CLASSES {
+            type_names.insert(c.to_string());
+        }
+        for c in MAT_TYPES {
             type_names.insert(c.to_string());
         }
         Parser {
@@ -813,6 +829,14 @@ impl Parser {
             | "datetime" | "color" => Ty::Int,
             "float" | "double" => Ty::Double,
             "string" => Ty::Str,
+            "matrix" | "matrixf" | "matrixc" => {
+                self.skip_template_args();
+                Ty::Mat(false)
+            }
+            "vector" | "vectorf" | "vectorc" => {
+                self.skip_template_args();
+                Ty::Mat(true)
+            }
             _ => {
                 if self.generics.contains(&name) {
                     Ty::Any
@@ -1576,6 +1600,16 @@ impl Parser {
                 } else {
                     Some(self.parse_assign()?)
                 }
+            } else if self.is_punct("(") && matches!(dty, Ty::Mat(_)) {
+                // matrix m(rows, cols); vector v(size);
+                self.bump();
+                let args = self.parse_args()?;
+                let f = if matches!(dty, Ty::Mat(true)) {
+                    "vector::__ctor"
+                } else {
+                    "matrix::__ctor"
+                };
+                Some(Expr::Call(self.interner.intern(f), args))
             } else if self.is_punct("(") && matches!(dty, Ty::Object(_)) {
                 // constructor arguments are ignored
                 while !self.eat_punct(")") {
@@ -2107,6 +2141,16 @@ impl Parser {
                     let e = self.parse_expr()?;
                     self.expect(")")?;
                     Ok(e)
+                }
+                n if mat_kind(n).is_some() && self.is_punct("::") => {
+                    // matrix::Eye(3, 3), vector::Ones(5)
+                    self.bump();
+                    let m = self.ident()?;
+                    let full = format!("{}::{}", mat_kind(n).unwrap_or("matrix"), m);
+                    let sym = self.interner.intern(&full);
+                    self.expect("(")?;
+                    let args = self.parse_args()?;
+                    Ok(Expr::Call(sym, args))
                 }
                 _ => {
                     // function-style cast: double(x)

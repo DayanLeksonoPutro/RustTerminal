@@ -225,7 +225,12 @@ impl Instance {
         })
     }
 
-    fn handle_buffer(&mut self, host: &mut dyn Host, h: i64, buf: usize) -> R<Option<Vec<f64>>> {
+    pub(super) fn handle_buffer(
+        &mut self,
+        host: &mut dyn Host,
+        h: i64,
+        buf: usize,
+    ) -> R<Option<Vec<f64>>> {
         let idx = h as usize;
         if h < 0 || idx >= self.handles.len() {
             return Ok(None);
@@ -458,6 +463,14 @@ impl Instance {
         a: &[Value],
         host: &mut dyn Host,
     ) -> R<Value> {
+        if a.first().is_some_and(|v| matches!(v, Value::Mat(_))) {
+            if let Some(v) = super::matrix::elementwise(name, a) {
+                return Ok(v);
+            }
+        }
+        if let Some(v) = super::matrix::static_ctor(name, a) {
+            return Ok(v);
+        }
         Ok(match name {
             "__comma" => a.last().cloned().unwrap_or(Value::Void),
             // ---------- output ----------
