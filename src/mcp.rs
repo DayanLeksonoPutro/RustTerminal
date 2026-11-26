@@ -179,8 +179,8 @@ impl Server {
         let want_live = a.get("live").and_then(|v| v.as_bool()).unwrap_or(true)
             && std::env::var("RUST_TERMINAL_OFFLINE").is_err();
         if self.market.symbols[i].source == Source::Simulated && want_live {
-            if let Some(pair) = crate::feed::pair_for(spec.name) {
-                match self.fetch_live(spec.name, &pair, tf, spec.digits) {
+            if crate::feed::has_source(spec.name) {
+                match self.fetch_live(spec.name, tf, spec.digits) {
                     Ok(bars) if !bars.is_empty() => {
                         let n = bars.len();
                         let bars = bars[n.saturating_sub(count)..].to_vec();
@@ -226,26 +226,21 @@ impl Server {
         })
     }
 
-    fn fetch_live(
-        &mut self,
-        sym: &str,
-        pair: &str,
-        tf: Timeframe,
-        digits: u32,
-    ) -> Result<Vec<Bar>, String> {
+    fn fetch_live(&mut self, sym: &str, tf: Timeframe, digits: u32) -> Result<Vec<Bar>, String> {
         let key = (sym.to_string(), tf);
         if let Some((t, b)) = self.live.get(&key) {
             if t.elapsed() < Duration::from_secs(20) {
                 return Ok(b.clone());
             }
         }
-        let agent = self.agent.get_or_insert_with(|| {
-            ureq::AgentBuilder::new()
-                .timeout(Duration::from_secs(10))
-                .user_agent("rust-terminal")
-                .build()
-        });
-        let bars = crate::feed::fetch_klines(agent, pair, tf, 1000, digits)?;
+        let (_, mut bars) = crate::feed::fetch_any(sym, tf)?;
+        crate::tz::bars_to_server(&mut bars, tf);
+        for b in bars.iter_mut() {
+            b.open = crate::market::round_to(b.open, digits);
+            b.high = crate::market::round_to(b.high, digits);
+            b.low = crate::market::round_to(b.low, digits);
+            b.close = crate::market::round_to(b.close, digits);
+        }
         self.live.insert(key, (Instant::now(), bars.clone()));
         Ok(bars)
     }
@@ -273,7 +268,7 @@ impl Server {
             .iter()
             .map(|s| {
                 let src = match s.source {
-                    Source::Simulated if crate::feed::pair_for(s.spec.name).is_some() => "live",
+                    Source::Simulated if crate::feed::has_source(s.spec.name) => "live",
                     Source::Simulated => "simulated",
                     Source::Live => "live",
                     _ => "history",

@@ -335,7 +335,7 @@ fn menu_bar(app: &mut TerminalApp, ctx: &egui::Context) {
                 }
                 ui.checkbox(&mut app.algo, crate::style::sc("Algo Trading   Ctrl+E"));
                 let mut live = app.market.live_running();
-                if ui.checkbox(&mut live, "Live Prices (crypto)").changed() {
+                if ui.checkbox(&mut live, "Live Prices").changed() {
                     if live {
                         app.market.start_live();
                     } else {
@@ -1346,7 +1346,25 @@ fn market_watch(app: &mut TerminalApp, ui: &mut egui::Ui) {
                                 }
                             });
                         ui.add_space(3.0);
-                        ui.label(RichText::new("+ click to add...").weak().size(11.0));
+                        let id = egui::Id::new("mw_add_symbol");
+                        let mut text =
+                            ui.data_mut(|d| d.get_temp::<String>(id).unwrap_or_default());
+                        let r = ui.add(
+                            egui::TextEdit::singleline(&mut text)
+                                .hint_text("+ add symbol (AAPL, NQ, BTCUSDT.P...)")
+                                .desired_width(f32::INFINITY),
+                        );
+                        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            match app.market.add_symbol(&text) {
+                                Ok(i) => {
+                                    let n = app.market.symbols[i].spec.name.to_string();
+                                    app.log_journal("Market Watch", format!("{} added", n));
+                                    text.clear();
+                                }
+                                Err(e) => app.log_error("Market Watch", e),
+                            }
+                        }
+                        ui.data_mut(|d| d.insert_temp(id, text));
                     });
             }
             MarketWatchTab::Details => {

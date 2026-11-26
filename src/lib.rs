@@ -32,6 +32,11 @@ mod ui;
 
 use std::path::PathBuf;
 
+/// Check every online data source and the saved API keys: `rust-terminal check-feeds`.
+pub fn check_feeds() {
+    feed::print_check()
+}
+
 /// Run the MCP server on stdin/stdout (no window): `rust-terminal mcp`.
 pub fn run_mcp() {
     mcp::run()

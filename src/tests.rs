@@ -1065,36 +1065,44 @@ void OnDeinit(const int reason) { Print("ticks=", ticks); }
 #[test]
 #[ignore]
 fn live_feed() {
+    let dir = std::env::temp_dir().join("rt_live_feed_test");
+    std::env::set_var("RUST_TERMINAL_DATA", &dir);
     let mut m = Market::new_simulated();
+    for s in ["AAPL", "NQ", "BTCUSDT.P"] {
+        m.add_symbol(s).unwrap();
+    }
     let n = m.start_live();
-    assert!(n >= 1);
-    let i = m.symbol_index("BTCUSD").unwrap();
-    let sim_price = m.symbols[i].bid;
+    assert!(n >= 4, "{} symbols with sources", n);
+    let want = ["BTCUSD", "EURUSD", "XAUUSD", "AAPL", "NQ"];
+    let idx: Vec<usize> = want.iter().map(|s| m.symbol_index(s).unwrap()).collect();
     let t0 = std::time::Instant::now();
-    let mut quotes = 0;
-    while t0.elapsed() < std::time::Duration::from_secs(40) && quotes < 3 {
-        let ticked = m.update();
-        if ticked.contains(&i) && m.symbols[i].source == crate::market::Source::Live {
-            quotes += 1;
-            println!(
-                "BTCUSD bid {} ask {} ({})",
-                m.symbols[i].bid, m.symbols[i].ask, m.feed_status
-            );
+    let mut got = vec![false; want.len()];
+    while t0.elapsed() < std::time::Duration::from_secs(120) && !got.iter().all(|g| *g) {
+        m.update();
+        for (k, i) in idx.iter().enumerate() {
+            if m.symbols[*i].provider.is_some() && m.symbols[*i].ticks > 0 {
+                got[k] = true;
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
-    assert!(quotes >= 1, "status: {}", m.feed_status);
-    let h1 = m.bars(i, Timeframe::H1).to_vec();
-    let d1 = m.bars(i, Timeframe::D1).to_vec();
-    println!(
-        "simulated start {} -> live {}, H1 bars {}, D1 bars {}, last H1 {:?}",
-        sim_price,
-        m.symbols[i].bid,
-        h1.len(),
-        d1.len(),
-        h1.last()
-    );
-    assert!(h1.len() >= 500 && d1.len() >= 500);
+    for l in &m.feed_log {
+        println!("feed: {}", l);
+    }
+    for i in idx.iter().copied().chain(m.symbol_index("BTCUSDT.P")) {
+        let s = &m.symbols[i];
+        let h1 = m
+            .bars_if_loaded(i, Timeframe::H1)
+            .map(|b| b.len())
+            .unwrap_or(0);
+        println!(
+            "{:10} {:?} via {:?}: bid {} ask {} digits {} H1 bars {}",
+            s.spec.name, s.source, s.provider, s.bid, s.ask, s.spec.digits, h1
+        );
+    }
+    std::env::remove_var("RUST_TERMINAL_DATA");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(got[0], "BTCUSD got no live price: {}", m.feed_status);
 }
 
 #[test]

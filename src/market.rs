@@ -282,6 +282,8 @@ pub struct SymbolState {
     pub ticks: u64,
     /// slow drift so trends appear
     pub drift: f64,
+    /// the online source serving live prices
+    pub provider: Option<&'static str>,
 }
 
 impl SymbolState {
@@ -300,6 +302,10 @@ pub struct Market {
     feed: Option<crate::feed::LiveFeed>,
     /// last message from the live price service
     pub feed_status: String,
+    /// recent messages from the live price service (newest last)
+    pub feed_log: Vec<String>,
+    /// symbols added by name whose price digits come from their first real prices
+    auto_digits: Vec<usize>,
 }
 
 pub fn unix_now() -> i64 {
@@ -316,6 +322,9 @@ impl Market {
         crate::tz::load_settings();
         let mut m = Market::new_simulated();
         m.load_real_data();
+        for name in load_watchlist() {
+            let _ = m.add_symbol(&name);
+        }
         m
     }
 
@@ -340,6 +349,7 @@ impl Market {
                     last_tick_time: now,
                     ticks: 0,
                     drift: 0.0,
+                    provider: None,
                     spec,
                 }
             })
@@ -351,6 +361,8 @@ impl Market {
             now,
             feed: None,
             feed_status: String::new(),
+            feed_log: vec![],
+            auto_digits: vec![],
         };
         for i in 0..m.symbols.len() {
             let d1 = m.bars(i, Timeframe::D1).to_vec();
@@ -430,11 +442,71 @@ impl Market {
                     last_tick_time: self.now,
                     ticks: 0,
                     drift: 0.0,
+                    provider: None,
                     spec,
                 });
                 self.symbols.len() - 1
             }
         }
+    }
+
+    /// Add a symbol by name (AAPL, NQ, BTCUSDT.P, BLOFIN:BTCUSDT.P, OANDA:EURUSD...) and
+    /// remember it. Its prices come from its online sources once live prices run.
+    pub fn add_symbol(&mut self, name: &str) -> Result<usize, String> {
+        let name = name.trim().to_ascii_uppercase();
+        if name.is_empty() {
+            return Err("type a symbol name".into());
+        }
+        if let Some(i) = self.symbol_index(&name) {
+            return Ok(i);
+        }
+        if crate::feed::classify(&name).is_none() && !name.contains(':') {
+            return Err(format!(
+                "'{}' is not a known kind of symbol (crypto, perpetual .P, stock, forex, metal or CME future)",
+                name
+            ));
+        }
+        let (digits, contract, description) = crate::feed::guess_spec(&name, 0.0);
+        let info = crate::history::SymbolInfo {
+            name: name.clone(),
+            description,
+            digits,
+            contract_size: contract,
+            volume_min: 0.01,
+            volume_max: 1000.0,
+            volume_step: 0.01,
+            spread: 2,
+            currency_base: String::new(),
+            currency_profit: "USD".into(),
+            currency_margin: String::new(),
+            tick_value: 0.0,
+            tick_size: 0.0,
+            bid: 100.0,
+        };
+        let i = self.add_or_update_symbol(&info);
+        let class = crate::feed::classify(&name);
+        if matches!(
+            class,
+            Some(crate::feed::Class::Crypto | crate::feed::Class::Perpetual)
+        ) {
+            self.auto_digits.push(i);
+        }
+        let mut list = load_watchlist();
+        if !list.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+            list.push(name);
+            save_watchlist(&list);
+        }
+        if self.live_running() {
+            self.start_live();
+        }
+        Ok(i)
+    }
+
+    /// Remove a symbol added by name.
+    pub fn remove_symbol(&mut self, name: &str) {
+        let mut list = load_watchlist();
+        list.retain(|n| !n.eq_ignore_ascii_case(name));
+        save_watchlist(&list);
     }
 
     /// Switch a symbol to its stored history (after an import, too).
@@ -493,11 +565,12 @@ impl Market {
 
     /// Start live quotes for every symbol that has a public price source.
     pub fn start_live(&mut self) -> usize {
-        let list: Vec<(String, u32)> = self
+        let keys = crate::feed::Keys::load();
+        let list: Vec<String> = self
             .symbols
             .iter()
-            .filter(|s| crate::feed::pair_for(s.spec.name).is_some())
-            .map(|s| (s.spec.name.to_string(), s.spec.digits))
+            .filter(|s| !crate::feed::routes(s.spec.name, &keys).is_empty())
+            .map(|s| s.spec.name.to_string())
             .collect();
         let n = list.len();
         if n > 0 {
@@ -510,6 +583,7 @@ impl Market {
     pub fn stop_live(&mut self) {
         self.feed = None;
         for s in self.symbols.iter_mut() {
+            s.provider = None;
             if s.source == Source::Live {
                 s.source = if crate::history::has_history(s.spec.name) {
                     Source::History
@@ -541,6 +615,21 @@ impl Market {
                 } => {
                     crate::tz::bars_to_server(&mut bars, tf);
                     if let Some(i) = self.symbol_index(&symbol) {
+                        if self.auto_digits.contains(&i) {
+                            // a symbol added by name: price digits from real prices
+                            if let Some(l) = bars.last() {
+                                let (d, _, _) = crate::feed::guess_spec(&symbol, l.close);
+                                self.symbols[i].spec.digits = d;
+                            }
+                            self.auto_digits.retain(|x| *x != i);
+                        }
+                        let digits = self.symbols[i].spec.digits;
+                        for b in bars.iter_mut() {
+                            b.open = round_to(b.open, digits);
+                            b.high = round_to(b.high, digits);
+                            b.low = round_to(b.low, digits);
+                            b.close = round_to(b.close, digits);
+                        }
                         self.symbols[i].source = Source::Live;
                         if let Some(last) = bars.last() {
                             let s = &mut self.symbols[i];
@@ -549,7 +638,9 @@ impl Market {
                                 s.day_high = last.high;
                                 s.day_low = last.low;
                             }
-                            if tf == Timeframe::M1 {
+                            // price from the finest bars so far, until quotes arrive
+                            if tf == Timeframe::M1 || (tf == Timeframe::H1 && s.ticks == 0) {
+                                s.last_tick_time = last.time;
                                 s.bid = last.close;
                                 s.prev_bid = last.close;
                                 s.ask = round_to(
@@ -570,12 +661,32 @@ impl Market {
                     if let Some(i) = self.symbol_index(&symbol) {
                         self.symbols[i].source = Source::Live;
                         let time = crate::tz::server().from_utc(time);
+                        let s = &self.symbols[i].spec;
+                        let bid = round_to(bid, s.digits);
+                        // one price only: add the symbol's usual spread
+                        let ask = if ask.is_finite() && ask >= bid {
+                            round_to(ask, s.digits)
+                        } else {
+                            round_to(bid + s.spread_points as f64 * s.point(), s.digits)
+                        };
                         if self.apply_quote(i, bid, ask, time) {
                             ticked.push(i);
                         }
                     }
                 }
+                crate::feed::FeedMsg::Source { symbol, provider } => {
+                    if let Some(i) = self.symbol_index(&symbol) {
+                        self.symbols[i].provider = Some(provider.name());
+                        self.symbols[i].ticks = 0;
+                        // drop generated or older bars: the new source's history follows
+                        self.series.retain(|(s, _), _| *s != i);
+                    }
+                }
                 crate::feed::FeedMsg::Status(s) | crate::feed::FeedMsg::Error(s) => {
+                    self.feed_log.push(s.clone());
+                    if self.feed_log.len() > 60 {
+                        self.feed_log.remove(0);
+                    }
                     self.feed_status = s
                 }
             }
@@ -696,6 +807,25 @@ impl Market {
                 apply_tick(bars, tf, now, bid, spread_pts);
             }
         }
+    }
+}
+
+fn watchlist_file() -> std::path::PathBuf {
+    crate::storage::data_dir().join("watchlist.json")
+}
+
+/// Symbols the user added by name.
+pub fn load_watchlist() -> Vec<String> {
+    std::fs::read_to_string(watchlist_file())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_watchlist(list: &[String]) {
+    let _ = std::fs::create_dir_all(crate::storage::data_dir());
+    if let Ok(t) = serde_json::to_string_pretty(list) {
+        let _ = std::fs::write(watchlist_file(), t);
     }
 }
 
