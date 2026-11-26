@@ -98,8 +98,12 @@ engine and compares every value): 36 of 37 identical (largest difference 3e-11, 
 The exception is AMA: the reference example never sets its slow smoothing constant (it stays
 0), while this build uses the documented formula SSC = ER*(fast-slow)+slow.
 
-Not verified: whether CopyBuffer applies a plot shift (iMA ma_shift, Alligator shifts); this
-build returns unshifted values. BW MFI's live-bar time correction is not applied.
+CopyBuffer returns shifted lines as the chart draws them: value at bar i = unshifted value at
+bar i − shift, EMPTY_VALUE where nothing moved in. Shifts: iMA/iBands/iEnvelopes `ma_shift`,
+iAlligator jaw/teeth/lips shifts per buffer, iIchimoku Senkou A/B +Kijun and Chikou −Kijun,
+iDEMA/iTEMA/iStdDev/iFrAMA/iAMA/iVIDyA `shift`, iCustom buffers by their plot's PLOT_SHIFT.
+(The platform documents this behaviour; it was not measured against a running terminal.) BW
+MFI's live-bar time correction is not applied.
 
 ## Data sources
 
@@ -108,8 +112,22 @@ build returns unshifted values. BW MFI's live-bar time correction is not applied
 - Broker symbol properties (digits, contract size, volume limits, spread, currencies, tick
   value) come from the export script. Profit for symbols whose profit currency is not USD and
   whose base is not USD uses the exported tick value (a fixed rate from export time).
-- Live: crypto symbols (BTCUSD, ETHUSD, ...) map to USDT pairs of public market data; 1000 bars
-  per timeframe are loaded, then best bid/ask is polled every second.
+- Live: every symbol has online sources in priority order (crypto: Binance, Binance.US,
+  Coinbase, Kraken, Bybit; perpetuals `.P`: Binance USD-M, Bybit, BloFin; stocks: Alpaca,
+  Polygon, Yahoo, Nasdaq; forex: OANDA, Yahoo, Kraken; metals: OANDA, Yahoo; CME futures:
+  Polygon, Yahoo). Premium sources need a key in `feeds.json`. The first source whose H1 history
+  loads serves the symbol; five failed quote polls in a row switch to the next source. All
+  timeframes are loaded (missing ones built from smaller bars), then quotes are polled (1–5 s by
+  source). A source with only a last price gets the symbol's usual spread added. Full list:
+  docs/DATA_SOURCES.md.
+- Time zones: the terminal runs on a server zone, default "broker" = GMT+2, GMT+3 during US
+  daylight saving time (second Sunday of March 07:00 UTC to first Sunday of November 06:00 UTC).
+  Bar times, TimeCurrent() and the chart use it; TimeGMT() is UTC; TimeLocal() is UTC plus the
+  computer's offset; TimeGMTOffset() = TimeGMT() − TimeLocal(). Stored history is UTC (`.utc`
+  marker per symbol folder; older folders are taken as server time). Intraday source bars move
+  by the offset; H4 and longer source bars keep their own boundaries and are labelled with the
+  server period containing their shifted open. CSV imports use the "CSV files are written in"
+  zone (default broker); MetaTrader exports record the broker offset (`server_zone.txt`).
 
 ## Strategy tester with real minutes
 

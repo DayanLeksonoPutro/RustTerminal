@@ -9,14 +9,20 @@ MetaTrader 5 Standard Library (`Trade.mqh`, `Indicators/*`, `Arrays/*`, ...).
 ![Rust Terminal screenshot](docs/screenshot.png)
 
 > **Note:** Accounts and order execution are **simulated** (paper trading). Prices are real
-> where you import history (CSV or straight from your MetaTrader 5) and for crypto symbols
-> with live public market data; everything else is simulated.
+> from online sources (crypto, US stocks, forex, metals, CME futures; see
+> [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)) and where you import history (CSV or straight
+> from your MetaTrader 5); a symbol with no reachable source is simulated.
 
 ## Features
 
 - **Market Watch**: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD, XAUUSD, BTCUSD,
   plus every symbol exported from your MetaTrader 5 (with the broker's digits, contract size
-  and tick value). BTCUSD and other crypto symbols get **live prices** from public market data.
+  and tick value). Add any symbol by name: `AAPL`, `NQ`, `BTCUSDT.P`, `BLOFIN:BTCUSDT.P`, ...
+- **Live prices from 12 sources** with automatic fallback: Binance, Binance.US, Coinbase,
+  Kraken, Bybit, BloFin, Binance USD-M futures, Yahoo, Nasdaq (free) and Alpaca, Polygon,
+  OANDA (your own API key, entered in File > History Data). `rust-terminal check-feeds`
+  tests them. Full list: [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
+- **Time zones**: one terminal (server) time like MetaTrader, broker GMT+2/+3 by default.
 - **Real history**: File > History Data imports CSV (MetaTrader 5/4 exports, Dukascopy,
   unix-time CSV) or everything the bundled `RustTerminal_Export` script exports from your
   MetaTrader 5. Higher timeframes are built from lower ones.
@@ -168,9 +174,11 @@ int OnCalculate(const int rates_total, const int prev_calculated, const int begi
   crashing the terminal, and an endless-loop guard stops runaway handlers
 
 On the 255 programs of a MetaTrader 5 installation (MetaQuotes examples, Standard Library
-tests and user EAs) 231 compile and 225 run. Current limits:
+tests and user EAs) 233 compile and 227 run. `matrix`/`vector` (MatMul, Inv, Det, Solve,
+statistics, CopyRates, CopyIndicatorBuffer, element-wise Math functions) are supported.
+Current limits:
 
-- `matrix`/`vector` types, OpenCL and DirectX are not supported.
+- complex matrices, OpenCL and DirectX are not supported.
 - Compiled `.ex5` files cannot run: the format is encrypted. Use the `.mq5` source.
 
 ## Project layout
@@ -187,7 +195,8 @@ src/
   mt5ind.rs       indicator values for programs, following the reference algorithms
   market.rs       symbols, ticks and bar history (simulated, real history or live)
   history.rs      CSV import, timeframes, MetaTrader 5 export/import
-  feed.rs         live public market data (background thread)
+  feed.rs         online data sources, routing/fallback, API keys (background thread)
+  tz.rs           terminal (server) time zone, conversions, settings
   data_ui.rs      History Data window
   account.rs      simulated account: orders, positions, margin, SL/TP
   editor.rs       code editor and compiler

@@ -12,8 +12,9 @@ code editor, a strategy tester, and a **home-made MQL5 interpreter** that runs c
 expert advisors (EAs) and scripts from `.mq5` source, including the real MetaTrader 5 Standard
 Library (classes, templates, preprocessor are supported).
 
-Data: prices are real where history was imported (CSV or the MT5 export script) and for crypto
-symbols with live public market data (`data-api.binance.vision`, no key); otherwise simulated.
+Data: prices are real from online sources (`feed.rs`: 12 providers with fallback, premium keys
+in `<data>/feeds.json`, list in `docs/DATA_SOURCES.md`) and where history was imported (CSV or
+the MT5 export script); otherwise simulated. Times: one server zone (`tz.rs`).
 
 Hard limits (by design, do not try to "fix"):
 - `.ex5` files cannot run — the format is encrypted. They are listed with a lock and an explanation.
@@ -28,6 +29,7 @@ Run everything from this directory (`app/`, where `Cargo.toml` lives).
 cargo build                     # debug build (opt-level 1, deps at 2)
 cargo run                       # start the GUI (live crypto prices start; RUST_TERMINAL_OFFLINE=1 to skip)
 cargo run -- mcp                # MCP server for coding agents on stdio (no window), see docs/MCP.md
+cargo run -- check-feeds        # test every data source and saved API key (network)
 cargo run -- --screenshot out.png   # open window, capture after ~120 frames to PNG, exit (needs a display)
 cargo test                      # unit tests (must stay green, no network)
 cargo clippy --all-targets      # lint
@@ -69,7 +71,10 @@ src/
                  (warm-up 0.0 / first price / EMPTY_VALUE exactly as the reference)
   history.rs     CSV import/parse, bar_open_time (W1 Sunday, MN1 1st), aggregate,
                  storage <data>/history/<SYM>/<TF>.csv, MT5 export script install/import
-  feed.rs        live public market data in a background thread (mpsc messages)
+  feed.rs        online data sources: classify symbol -> routes (providers in priority order,
+                 premium ones only with a key), history/quote fetchers per provider, fallback,
+                 Keys (feeds.json), check_sources; background thread with mpsc messages
+  tz.rs          server time zone (broker GMT+2/+3 default), UTC<->server conversion, settings.json
   data_ui.rs     File > History Data window
   objects.rs     chart objects (lines, trend, Fibonacci, rectangle, text)
   market.rs      symbols (Source: Simulated | History | Live), ticks, bar series, Timeframe;
@@ -94,6 +99,7 @@ src/
     interp.rs    interpreter core: Value, Instance, `Host` trait, events, OnCalculate
     interp/calls.rs  builtin functions (big `match name`), Copy* ranges (series_range)
     interp/extra.rs  more builtins: files, strings/arrays, out-parameters, OpenCL stubs…
+    interp/matrix.rs matrix/vector values (Value::Mat, Ty::Mat), methods, operators
 MECHANICS.md     behaviour spec: defaults, formulas, runtime rules, account/tester rules
 mechanics.json   machine-readable version of the same values
 shots/           reference screenshots
@@ -158,8 +164,9 @@ for background if useful; do not edit or delete them, and do not commit them.
 ## Known gaps / ideas
 
 - Real order execution (MT5 bridge EA via Common Files, or broker API) — ask the user first.
-- `matrix`/`vector` types; GUI panels (Controls/Canvas) need chart object rendering.
+- GUI panels (Controls/Canvas) need chart object rendering; complex matrices (matrixc).
+- 1-second bars and websocket streaming (quotes are polled).
 - Android: builds and packages (tools/android/build.sh) but uses the desktop layout and was not
   run on a device yet; a touch layout is future work. EAs running 24/7 need a headless engine.
-- CopyBuffer and indicator plot shifts (iMA ma_shift, Alligator) — unshifted for now.
-- MT5 exports use broker server time; live/simulated ticks use UTC.
+- Times: everything is converted to the server zone (`tz.rs`); stored history is UTC.
+- Some networks (Indonesian ISP filter) block Kraken/Bybit/BloFin/Binance.US; fallback handles it.
