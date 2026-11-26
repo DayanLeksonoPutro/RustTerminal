@@ -1060,6 +1060,26 @@ impl Instance {
         set(&p.price, &|b| Value::Double(b.close));
     }
 
+    /// PLOT_SHIFT of the plot that draws indicator buffer `buf` (0 when none).
+    pub fn buffer_shift(&self, buf: usize) -> i64 {
+        let mut bi = 0;
+        for plot in &self.plots {
+            let need = match plot.draw_type {
+                4 | 7 | 6 => 2,
+                8 | 9 => 4,
+                10 | 11 | 12 | 14 => 2,
+                13 | 15 => 3,
+                16 | 17 => 5,
+                _ => 1,
+            };
+            if buf >= bi && buf < bi + need {
+                return plot.shift;
+            }
+            bi += need;
+        }
+        0
+    }
+
     /// The plots of an indicator with their data, for drawing.
     pub fn plot_data(&self) -> Vec<(PlotRt, Vec<Vec<f64>>)> {
         let mut out = vec![];

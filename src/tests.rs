@@ -1157,3 +1157,32 @@ void OnStart() {
         .collect();
     assert!(got.ends_with(&want), "{:#?}", got);
 }
+
+#[test]
+fn copybuffer_shift() {
+    let out = run_script(
+        r#"
+void OnStart() {
+   int h0 = iMA(_Symbol, PERIOD_H1, 10, 0, MODE_SMA, PRICE_CLOSE);
+   int h3 = iMA(_Symbol, PERIOD_H1, 10, 3, MODE_SMA, PRICE_CLOSE);
+   double a[], b[];
+   CopyBuffer(h0, 0, 3, 1, a);
+   CopyBuffer(h3, 0, 0, 1, b);
+   Print(a[0] == b[0]);
+   int al = iAlligator(_Symbol, PERIOD_H1, 13, 8, 8, 5, 5, 3, MODE_SMMA, PRICE_MEDIAN);
+   int an = iAlligator(_Symbol, PERIOD_H1, 13, 0, 8, 0, 5, 0, MODE_SMMA, PRICE_MEDIAN);
+   double j[], k[], t[], u[];
+   CopyBuffer(al, 0, 0, 1, j);
+   CopyBuffer(an, 0, 8, 1, k);
+   CopyBuffer(al, 1, 0, 1, t);
+   CopyBuffer(an, 1, 5, 1, u);
+   Print(j[0] == k[0], " ", t[0] == u[0]);
+}
+"#,
+    );
+    let got: Vec<&str> = out
+        .iter()
+        .map(|s| s.split("   ").last().unwrap_or(s).trim())
+        .collect();
+    assert!(got.ends_with(&["true", "true true"]), "{:#?}", got);
+}

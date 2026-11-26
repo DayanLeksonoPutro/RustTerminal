@@ -17,6 +17,56 @@ fn arg_i(a: &[Value], i: usize, d: i64) -> i64 {
 fn arg_s(a: &[Value], i: usize) -> String {
     a.get(i).map(|v| v.to_text()).unwrap_or_default()
 }
+/// Indicator values as the chart shows them, moved `shift` bars to the right (left when
+/// negative): CopyBuffer reads shifted lines this way, empty where nothing was moved in.
+pub(super) fn shifted(v: Vec<f64>, shift: i64) -> Vec<f64> {
+    if shift == 0 {
+        return v;
+    }
+    let n = v.len() as i64;
+    (0..n)
+        .map(|i| {
+            let src = i - shift;
+            if src >= 0 && src < n {
+                v[src as usize]
+            } else {
+                crate::mt5ind::EMPTY
+            }
+        })
+        .collect()
+}
+
+/// Shift of a built-in indicator's buffer.
+fn builtin_shift(k: IndKind, p: &IndParams, buf: usize) -> i64 {
+    match k {
+        IndKind::MovingAverage | IndKind::Bands | IndKind::Envelopes => p.shift,
+        IndKind::Alligator => match buf {
+            0 => p.shift,
+            1 => p.f1 as i64,
+            _ => p.f2 as i64,
+        },
+        // Senkou spans ahead by the Kijun period, Chikou behind it
+        IndKind::Ichimoku => match buf {
+            2 | 3 => p.p2,
+            4 => -p.p2,
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
+/// Shift of an extra i-function (DEMA, TEMA, StdDev, AMA, FrAMA, VIDyA take one).
+fn ext_shift(k: crate::indicators_ext::ExtKind, p: &crate::indicators_ext::ExtParams) -> i64 {
+    use crate::indicators_ext::ExtKind::*;
+    let at = |i: usize| p.i.get(i).copied().unwrap_or(0);
+    match k {
+        Dema | Tema | StdDev | Frama => at(1),
+        Ama => at(3),
+        Vidya => at(2),
+        _ => 0,
+    }
+}
+
 fn vd(v: f64) -> Value {
     Value::Double(v)
 }
@@ -247,7 +297,7 @@ impl Instance {
                 self.with_bars(host, &s, t, |bars| crate::mt5ind::builtin(k, &p, bars))
                     .and_then(|mut v| {
                         if buf < v.len() {
-                            Some(v.swap_remove(buf))
+                            Some(shifted(v.swap_remove(buf), builtin_shift(k, &p, buf)))
                         } else {
                             None
                         }
@@ -267,7 +317,7 @@ impl Instance {
                 })
                 .and_then(|mut v| {
                     if buf < v.len() {
-                        Some(v.swap_remove(buf))
+                        Some(shifted(v.swap_remove(buf), ext_shift(k, &p)))
                     } else {
                         None
                     }
@@ -281,11 +331,19 @@ impl Instance {
                 let bars: Option<Vec<Bar>> = host.bars(symbol, *tf).map(|b| b.to_vec());
                 match bars {
                     Some(bars) => match child.calculate_on(&bars, host) {
-                        Ok(()) => child
-                            .buffers
-                            .get(buf)
-                            .and_then(|b| b.as_ref())
-                            .map(|(arr, _)| arr.borrow().data.iter().map(|v| v.as_f64()).collect()),
+                        Ok(()) => {
+                            let sh = child.buffer_shift(buf);
+                            child
+                                .buffers
+                                .get(buf)
+                                .and_then(|b| b.as_ref())
+                                .map(|(arr, _)| {
+                                    shifted(
+                                        arr.borrow().data.iter().map(|v| v.as_f64()).collect(),
+                                        sh,
+                                    )
+                                })
+                        }
                         Err(e) => {
                             let msg = child.fmt_err(&e);
                             host.print(&format!("{}: {}", child.name, msg));
@@ -1463,6 +1521,10 @@ impl Instance {
                     p3: arg_i(a, 6, 5),
                     method: arg_i(a, 8, 2),
                     price: arg_i(a, 9, 5),
+                    // jaw, teeth and lips shifts
+                    shift: arg_i(a, 3, 8),
+                    f1: arg_i(a, 5, 5) as f64,
+                    f2: arg_i(a, 7, 3) as f64,
                     ..IndParams::defaults(IndKind::Alligator)
                 };
                 self.builtin_handle(a, IndKind::Alligator, p)
